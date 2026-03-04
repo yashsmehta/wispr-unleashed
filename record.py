@@ -33,7 +33,9 @@ OBSIDIAN_VAULT = Path(os.getenv("OBSIDIAN_VAULT", str(Path.home() / "Documents" 
 TRANSCRIPTS_DIR = Path(os.getenv("TRANSCRIPTS_DIR", str(OBSIDIAN_VAULT / "Transcripts")))
 PID_FILE = Path("/tmp/wispr-unleashed.pid")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
+USER_NAME = os.getenv("USER_NAME", "")
 _OBSIDIAN_REF = Path(__file__).parent / "obsidian-reference.md"
+_GLOSSARY = OBSIDIAN_VAULT / "Glossary.md"
 POLL_INTERVAL = 5        # seconds between DB polls while recording
 POLL_FAST = 1            # seconds between DB polls while waiting for transcription
 RECORD_DURATION = 295    # 4m55s — stop just before Wispr's 5-min warning
@@ -45,10 +47,10 @@ MEETING_NOTES_PROMPT = """\
 You are processing a raw transcript of a research meeting — typically a discussion about a research project with a professor or collaborators.
 
 Rules:
-- Start with a `# Title` — short and descriptive of the actual content (e.g. "Sparse MoE Training Strategy"), NOT the date or generic labels like "Meeting Notes"
+- Start with `# N: Title` where N is the meeting number provided below. The title should be short, punchy, and descriptive of the key topics (e.g. "# 11: Pre-ReLU Analysis & Paper Strategy"). NOT a paper title, NOT the date, NOT generic labels. Keep the title under 8 words
 - Extract the key ideas, questions, and technical details discussed
 - Capture any suggested approaches, references, or directions that came up
-- If someone agreed to do something, note it as an action item with their name
+- If someone agreed to do something, note it as an action item with their name. Pay close attention to WHO is committing to each action — distinguish the recorder from other participants using context clues (e.g. "I'll do X" vs "can you do X")
 - Group by topic, not chronological order — let the structure emerge from the content
 - Preserve specific paper names, method names, equations, URLs, and proper nouns exactly
 - Use terse bullet points — no filler, no "we discussed", no meta-commentary
@@ -56,13 +58,15 @@ Rules:
 - Use whatever heading structure best fits the content — don't force a rigid template
 - Use Obsidian-flavored markdown: callouts (`> [!tip]`, `> [!question]`, `> [!todo]`, etc.), ==highlights== for key results, $LaTeX$ for math, and tables where they aid clarity. See the formatting reference below for available features.
 - Do NOT include any preamble, disclaimer, or labels — just the notes
+- Keep whitespace minimal — no extra blank lines between sections. One blank line before headings, no blank lines between bullet points
+- At the end, add a `> [!study] New Terms` callout listing any technical terms, concepts, or techniques from the transcript that are NOT in the user's known glossary (provided below). Give each a brief 1-2 sentence definition. Skip this section if there are no new terms.
 """
 
 TALK_NOTES_PROMPT = """\
 You are processing a raw transcript of an academic presentation — either a research talk (~45 min, one speaker presenting their work) or a class lecture (~1 hour).
 
 Rules:
-- Start with a `# Title` — short and descriptive of the actual content (e.g. "Attention Is All You Need" or "Convex Optimization Basics"), NOT the date or generic labels like "Lecture Notes"
+- Start with a `# Title` — short, punchy, and descriptive of the key topics (e.g. "Attention Is All You Need" or "Convex Optimization Basics"). NOT the date, NOT generic labels like "Lecture Notes". Keep it under 8 words
 - Capture the core argument: what problem, what approach, why it matters, what they found
 - Extract key ideas, concepts, and distinctions the speaker introduces
 - Note methods, results, and any specific numbers or comparisons
@@ -75,6 +79,8 @@ Rules:
 - Use whatever heading structure best fits the content — don't force a rigid template
 - Use Obsidian-flavored markdown: callouts (`> [!tip]`, `> [!question]`, `> [!example]`, etc.), ==highlights== for key results, $LaTeX$ for math, and tables where they aid clarity. See the formatting reference below for available features.
 - Do NOT include any preamble, disclaimer, or labels — just the notes
+- Keep whitespace minimal — no extra blank lines between sections. One blank line before headings, no blank lines between bullet points
+- At the end, add a `> [!study] New Terms` callout listing any technical terms, concepts, or techniques from the transcript that are NOT in the user's known glossary (provided below). Give each a brief 1-2 sentence definition. Skip this section if there are no new terms.
 """
 
 _TALK_CATEGORIES = {"Talks", "Classes", "Lectures", "Seminars"}
@@ -82,8 +88,14 @@ _TALK_CATEGORIES = {"Talks", "Classes", "Lectures", "Seminars"}
 
 def _get_notes_prompt(category: str | None) -> str:
     base = TALK_NOTES_PROMPT if category and category in _TALK_CATEGORIES else MEETING_NOTES_PROMPT
+    if USER_NAME:
+        base += f"\nThe transcript was recorded by {USER_NAME}. {USER_NAME} is the one doing the work — in research meetings, the other person is typically the supervisor giving direction. Unless clearly stated otherwise, action items should be attributed to {USER_NAME}.\n"
     try:
         base += "\n\nOBSIDIAN FORMATTING REFERENCE:\n" + _OBSIDIAN_REF.read_text()
+    except FileNotFoundError:
+        pass
+    try:
+        base += "\n\nUSER'S KNOWN GLOSSARY (do NOT define these — only flag terms NOT in this list):\n" + _GLOSSARY.read_text()
     except FileNotFoundError:
         pass
     return base
@@ -165,15 +177,16 @@ class SelectMenu:
             self._line_count = 0
 
     def _read_key(self) -> str:
-        ch = sys.stdin.read(1)
-        if ch == "\x1b":
-            if select.select([sys.stdin], [], [], 0.05)[0]:
-                ch2 = sys.stdin.read(1)
-                if ch2 == "[":
-                    ch3 = sys.stdin.read(1)
-                    return {"A": "up", "B": "down"}.get(ch3, "")
+        fd = sys.stdin.fileno()
+        ch = os.read(fd, 1)
+        if ch == b"\x1b":
+            if select.select([fd], [], [], 0.05)[0]:
+                ch2 = os.read(fd, 1)
+                if ch2 == b"[":
+                    ch3 = os.read(fd, 1)
+                    return {"A": "up", "B": "down"}.get(ch3.decode(), "")
             return "esc"
-        if ch in ("\r", "\n"):
+        if ch in (b"\r", b"\n"):
             return "enter"
         return ""
 
@@ -252,17 +265,14 @@ class FolderPicker:
             return " › ".join(parts)
         return "any key → pick folder"
 
-    def get_destination(self, heading: str) -> Path | None:
+    def get_destination(self) -> Path | None:
         if not self.completed or not self.category:
             return None
         dest = OBSIDIAN_VAULT / self.category
         if self.subfolder:
             dest = dest / self.subfolder
-        date_str = datetime.now().strftime("%Y-%m-%d")
-        slug = slugify(heading)
-        notes_path = dest / f"{date_str}-{slug}.md"
         dest.mkdir(parents=True, exist_ok=True)
-        return notes_path
+        return dest
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -295,8 +305,17 @@ def create_transcript_file(heading: str) -> Path:
     return path
 
 
+WINDOW_TITLE = "wispr-recording"
+
+
+def set_window_title(title: str = WINDOW_TITLE):
+    """Set the terminal window/tab title via ANSI escape."""
+    sys.stdout.write(f"\033]0;{title}\007")
+    sys.stdout.flush()
+
+
 def focus_terminal():
-    """Bring terminal to foreground so Wispr's paste lands here harmlessly."""
+    """Bring the recording terminal window to foreground so Wispr's paste lands here."""
     term = os.environ.get("TERM_PROGRAM", "")
     app_map = {
         "Apple_Terminal": "Terminal",
@@ -305,8 +324,16 @@ def focus_terminal():
         "WezTerm": "WezTerm",
     }
     app_name = app_map.get(term, "Terminal")
-    subprocess.run(["osascript", "-e", f'tell application "{app_name}" to activate'],
-                   check=False, capture_output=True)
+    # Focus the specific window by title, not just the app
+    script = f'''
+        tell application "{app_name}"
+            activate
+            try
+                set index of (first window whose name contains "{WINDOW_TITLE}") to 1
+            end try
+        end tell
+    '''
+    subprocess.run(["osascript", "-e", script], check=False, capture_output=True)
 
 
 def flush_stdin():
@@ -422,9 +449,16 @@ def _get_gemini_client():
     return genai.Client(api_key=api_key)
 
 
-def generate_notes(transcript_path: Path, notes_path: Path, heading: str,
+def _next_meeting_number(folder: Path) -> int:
+    """Count existing .md files in folder to determine the next meeting number."""
+    if not folder.exists():
+        return 1
+    return sum(1 for f in folder.iterdir() if f.suffix == ".md") + 1
+
+
+def generate_notes(transcript_path: Path, dest_dir: Path, heading: str,
                    category: str | None = None):
-    """Generate notes from transcript using Gemini and save as a separate file."""
+    """Generate notes from transcript using Gemini and save to dest_dir."""
     transcript = transcript_path.read_text()
     if not transcript.strip():
         put(f"{DIM}skipped notes — empty transcript{RESET}")
@@ -437,7 +471,9 @@ def generate_notes(transcript_path: Path, notes_path: Path, heading: str,
 
     from google.genai import types
 
+    meeting_num = _next_meeting_number(dest_dir)
     prompt = _get_notes_prompt(category)
+    prompt += f"\nThis is meeting #{meeting_num} in this series. Start the title as `# {meeting_num}: <title>`.\n"
 
     try:
         response = client.models.generate_content(
@@ -454,7 +490,23 @@ def generate_notes(transcript_path: Path, notes_path: Path, heading: str,
         return
 
     notes = re.sub(r"\n{3,}", "\n\n", response.text.strip())
-    notes_path.write_text(notes + "\n")
+
+    # Extract title from generated heading to build filename
+    first_line = notes.split("\n")[0]
+    title_match = re.match(r"^#\s*(\d+):\s*(.+)$", first_line)
+    if title_match:
+        num = int(title_match.group(1))
+        title = title_match.group(2).strip()
+        filename = f"{num:02d} {title}.md"
+    else:
+        filename = f"{meeting_num:02d} {heading}.md"
+
+    # Add YAML frontmatter with date
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    content = f"---\ndate: {date_str}\n---\n\n{notes}\n"
+
+    notes_path = dest_dir / filename
+    notes_path.write_text(content)
     rel = notes_path.relative_to(OBSIDIAN_VAULT)
     put(f"{GREEN}✓{RESET} {DIM}{rel}{RESET}")
 
@@ -525,6 +577,7 @@ def main():
 
     signal.signal(signal.SIGINT, handle_sigint)
 
+    set_window_title()
     print(f"\n  {BOLD}wispr{RESET} {DIM}·{RESET} {heading}\n")
 
     fd = sys.stdin.fileno() if interactive else -1
@@ -607,6 +660,7 @@ def main():
         if old_term is not None:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_term)
         sys.stdout.write(SHOW_CURSOR)
+        set_window_title("")  # restore default terminal title
         sys.stdout.write("\n\n")
         stats["wall_time"] = time.monotonic() - session_start
         write_footer(md_path, stats)
@@ -625,10 +679,10 @@ def main():
             except (KeyboardInterrupt, EOFError):
                 pass
 
-            notes_path = folder_picker.get_destination(heading)
-            if notes_path:
+            dest_dir = folder_picker.get_destination()
+            if dest_dir:
                 put(f"{DIM}generating notes...{RESET}")
-                generate_notes(md_path, notes_path, heading,
+                generate_notes(md_path, dest_dir, heading,
                                category=folder_picker.category)
 
         put(f"{DIM}{md_path.name}{RESET}")
