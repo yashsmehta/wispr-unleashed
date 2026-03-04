@@ -24,13 +24,16 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+load_dotenv()
+
 # ── Constants ────────────────────────────────────────────────────────────────
 
 WISPR_DB = Path.home() / "Library" / "Application Support" / "Wispr Flow" / "flow.sqlite"
-OBSIDIAN_VAULT = Path.home() / "Documents" / "Obsidian Vault"
-TRANSCRIPTS_DIR = OBSIDIAN_VAULT / "Transcripts"
+OBSIDIAN_VAULT = Path(os.getenv("OBSIDIAN_VAULT", str(Path.home() / "Documents" / "Obsidian Vault")))
+TRANSCRIPTS_DIR = Path(os.getenv("TRANSCRIPTS_DIR", str(OBSIDIAN_VAULT / "Transcripts")))
 PID_FILE = Path("/tmp/wispr-clawd.pid")
-_SCHOLARBOARD_ENV = Path.home() / "Research" / "scienta-ai" / "ScholarBoard-ai" / ".env"
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
+_OBSIDIAN_REF = Path(__file__).parent / "obsidian-reference.md"
 POLL_INTERVAL = 5        # seconds between DB polls while recording
 POLL_FAST = 1            # seconds between DB polls while waiting for transcription
 RECORD_DURATION = 280    # 4m40s — stop before Wispr's "1 min left" warning at 5:00
@@ -39,48 +42,51 @@ MAX_DURATION = 2 * 60 * 60  # 2 hour hard limit
 DRAIN_TIMEOUT = 15       # seconds to wait for in-flight chunk after Ctrl+C
 
 MEETING_NOTES_PROMPT = """\
-You are processing a raw meeting transcript. Generate clean, information-dense meeting notes.
+You are processing a raw transcript of a research meeting — typically a discussion about a research project with a professor or collaborators.
 
 Rules:
-- Extract every concrete fact, decision, number, name, deadline, action item, and technical detail
-- Use terse bullet points — no filler words, no "the team discussed", no summaries of summaries
-- Group by topic, not by chronological order
-- If someone committed to doing something, mark it as an action item with their name
-- If a decision was made, state the decision directly
-- If a question was raised but not resolved, note it as an open question
-- Preserve specific numbers, dates, URLs, code references, and proper nouns exactly
-- Skip pleasantries, greetings, off-topic chatter, and repetition
-- Be brutally concise — every word must carry information
+- Start with a `# Title` — short and descriptive of the actual content (e.g. "Sparse MoE Training Strategy"), NOT the date or generic labels like "Meeting Notes"
+- Extract the key ideas, questions, and technical details discussed
+- Capture any suggested approaches, references, or directions that came up
+- If someone agreed to do something, note it as an action item with their name
+- Group by topic, not chronological order — let the structure emerge from the content
+- Preserve specific paper names, method names, equations, URLs, and proper nouns exactly
+- Use terse bullet points — no filler, no "we discussed", no meta-commentary
+- Be concise — every word must carry information
 - Use whatever heading structure best fits the content — don't force a rigid template
-- Output clean markdown suitable for Obsidian — no extra blank lines, no trailing spaces
-- Do NOT include any preamble, disclaimer, or "auto-generated" labels — just the notes
+- Use Obsidian-flavored markdown: callouts (`> [!tip]`, `> [!question]`, `> [!todo]`, etc.), ==highlights== for key results, $LaTeX$ for math, and tables where they aid clarity. See the formatting reference below for available features.
+- Do NOT include any preamble, disclaimer, or labels — just the notes
 """
 
 TALK_NOTES_PROMPT = """\
-You are processing a raw transcript of an academic talk, lecture, or seminar. Generate clean, information-dense notes.
+You are processing a raw transcript of an academic presentation — either a research talk (~45 min, one speaker presenting their work) or a class lecture (~1 hour).
 
 Rules:
-- Extract key claims and the evidence or reasoning supporting each
-- Capture methods, datasets, metrics, and results with exact numbers
-- Note all referenced papers, authors, and institutions
-- Identify the core thesis arc — what problem, why it matters, what's new
-- Record precise conceptual definitions and distinctions the speaker makes
-- Note open questions, future directions, and limitations the speaker mentions
-- Preserve specific numbers, dates, URLs, code references, and proper nouns exactly
-- Skip filler, audience logistics, and repetition
-- Be brutally concise — every word must carry information
+- Start with a `# Title` — short and descriptive of the actual content (e.g. "Attention Is All You Need" or "Convex Optimization Basics"), NOT the date or generic labels like "Lecture Notes"
+- Capture the core argument: what problem, what approach, why it matters, what they found
+- Extract key ideas, concepts, and distinctions the speaker introduces
+- Note methods, results, and any specific numbers or comparisons
+- Record referenced papers, people, and tools
+- For classes: capture definitions, frameworks, and worked examples
+- Note open problems, limitations, or future directions the speaker raises
+- Preserve technical terms, equations, and proper nouns exactly
+- Use terse bullet points — no filler, no "the speaker discussed"
+- Be concise — every word must carry information
 - Use whatever heading structure best fits the content — don't force a rigid template
-- Output clean markdown suitable for Obsidian — no extra blank lines, no trailing spaces
-- Do NOT include any preamble, disclaimer, or "auto-generated" labels — just the notes
+- Use Obsidian-flavored markdown: callouts (`> [!tip]`, `> [!question]`, `> [!example]`, etc.), ==highlights== for key results, $LaTeX$ for math, and tables where they aid clarity. See the formatting reference below for available features.
+- Do NOT include any preamble, disclaimer, or labels — just the notes
 """
 
 _TALK_CATEGORIES = {"Talks", "Classes", "Lectures", "Seminars"}
 
 
 def _get_notes_prompt(category: str | None) -> str:
-    if category and category in _TALK_CATEGORIES:
-        return TALK_NOTES_PROMPT
-    return MEETING_NOTES_PROMPT
+    base = TALK_NOTES_PROMPT if category and category in _TALK_CATEGORIES else MEETING_NOTES_PROMPT
+    try:
+        base += "\n\nOBSIDIAN FORMATTING REFERENCE:\n" + _OBSIDIAN_REF.read_text()
+    except FileNotFoundError:
+        pass
+    return base
 
 # ── Terminal formatting ──────────────────────────────────────────────────────
 
@@ -407,16 +413,10 @@ def write_footer(md_path: Path, stats: dict):
 
 
 def _get_gemini_client():
-    """Load API key from local .env (or ScholarBoard .env) and return a Gemini client, or None."""
-    load_dotenv()  # local .env first
+    """Return a Gemini client using GOOGLE_API_KEY from env, or None."""
     api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
-        # Pull only the API key from ScholarBoard — don't load Vertex AI vars
-        load_dotenv(_SCHOLARBOARD_ENV)
-        api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
         return None
-    # Force AI Studio, not Vertex AI
     os.environ.pop("GOOGLE_GENAI_USE_VERTEXAI", None)
     from google import genai
     return genai.Client(api_key=api_key)
@@ -441,7 +441,7 @@ def generate_notes(transcript_path: Path, notes_path: Path, heading: str,
 
     try:
         response = client.models.generate_content(
-            model="gemini-3-flash-preview",
+            model=GEMINI_MODEL,
             contents=prompt + "\n\nTRANSCRIPT:\n" + transcript,
             config=types.GenerateContentConfig(temperature=0.3),
         )
@@ -454,12 +454,7 @@ def generate_notes(transcript_path: Path, notes_path: Path, heading: str,
         return
 
     notes = re.sub(r"\n{3,}", "\n\n", response.text.strip())
-    now = datetime.now()
-    notes_path.write_text(
-        f"# {heading}\n"
-        f"*{now.strftime('%A, %B %-d, %Y')}*\n\n"
-        f"{notes}\n"
-    )
+    notes_path.write_text(notes + "\n")
     rel = notes_path.relative_to(OBSIDIAN_VAULT)
     put(f"{GREEN}✓{RESET} {DIM}{rel}{RESET}")
 
