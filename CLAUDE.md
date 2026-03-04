@@ -38,6 +38,16 @@ bash install.sh
 - Auto-numbers notes sequentially within each folder
 - Uses a PID file at `/tmp/wispr-unleashed.pid` for toggle coordination
 
+**`ui.py`** — Terminal UI components:
+- ANSI formatting constants (`DIM`, `BOLD`, `GREEN`, `YELLOW`, `CYAN`, `RESET`, etc.)
+- `put(msg)` — prints a line with cursor-clearing (handles Wispr-pasted text)
+- `draw_dots(completed, active, suffix)` — dot matrix progress indicator
+- `flush_stdin()` — discards buffered terminal input
+- `SelectMenu` — arrow-key navigable menu (cbreak mode)
+- `FolderPicker(vault_path)` — two-stage category → subfolder selection
+- `discover_categories(vault_path)` / `discover_subfolders(vault_path, category)` — Obsidian vault folder discovery
+- All vault-path-dependent functions take `vault_path` as a parameter (no config imports)
+
 **`llm.py`** — Gemini LLM calls for note generation:
 - Two parallel API calls per meeting: one for structured notes, one for action items (via `ThreadPoolExecutor`)
 - Talks/lectures get a single notes call (no action items)
@@ -46,6 +56,12 @@ bash install.sh
 - Prompts include user's `Glossary.md` (known terms) — new technical terms are flagged in a `> [!study] New Terms` callout
 - Both calls use `thinking_level="high"` for better reasoning
 - Gemini client and obsidian-reference file are cached (`@lru_cache`)
+
+**`prompts/`** — LLM prompt templates (markdown files):
+- `meeting_notes.md` — structured meeting notes prompt
+- `action_items.md` — action item extraction prompt
+- `talk_notes.md` — talk/lecture notes prompt
+- Loaded by `llm._read_prompt(name)` with `@lru_cache`
 
 **`toggle.sh`** — Keyboard shortcut handler: if recording is running (PID file exists), sends SIGINT to stop; otherwise opens a new Terminal window and starts `record.py`.
 
@@ -71,7 +87,7 @@ All configuration is via environment variables (`.env` file loaded automatically
 - A `GOOGLE_API_KEY` is required for auto-generated meeting notes (get one at [Google AI Studio](https://aistudio.google.com/apikey))
 - Transcriptions are matched by `transcriptEntityId` to avoid duplicates; the `known_ids` set tracks already-processed chunks
 - Signal handling: first Ctrl+C triggers graceful shutdown with drain; second forces exit
-- Arrow key input in the folder picker uses `os.read(fd, 1)` directly (not `sys.stdin.read`) to avoid Python's `BufferedReader` consuming escape sequence bytes before `select.select` can detect them
+- Arrow key input in the folder picker (`ui.py`) uses `os.read(fd, 1)` directly (not `sys.stdin.read`) to avoid Python's `BufferedReader` consuming escape sequence bytes before `select.select` can detect them
 - Transcript files go to `TRANSCRIPTS_DIR` with format `YYYY-MM-DD-slug.md`
 - Notes files go to the chosen Obsidian folder with format `{num:02d} {Title}.md`
 - `Glossary.md` in the Obsidian vault root tracks known technical terms; new terms from transcripts are flagged in notes
