@@ -49,12 +49,8 @@ def _build_notes_prompt(category: str | None, vault: Path) -> str:
 
 @lru_cache(maxsize=1)
 def _get_client():
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        return None
-    os.environ.pop("GOOGLE_GENAI_USE_VERTEXAI", None)
     from google import genai
-    return genai.Client(api_key=api_key)
+    return genai.Client()
 
 
 def _call_gemini(client, prompt: str, transcript: str,
@@ -83,9 +79,6 @@ def generate_notes(transcript: str, category: str | None,
     Returns combined markdown string, or None on failure.
     """
     client = _get_client()
-    if client is None:
-        return None
-
     is_talk = category and category in _TALK_CATEGORIES
 
     # Build notes prompt

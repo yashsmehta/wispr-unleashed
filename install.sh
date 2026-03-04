@@ -38,23 +38,31 @@ echo "  Installing dependencies..."
 pip3 install -q -r "$SCRIPT_DIR/requirements.txt"
 echo "  ✓ Dependencies installed"
 
-# ── API key ───────────────────────────────────────────────────────────────────
+# ── GCP / Vertex AI ──────────────────────────────────────────────────────────
 
 echo ""
-if [ -f "$ENV_FILE" ] && grep -q "GOOGLE_API_KEY=." "$ENV_FILE" 2>/dev/null && ! grep -q "your-api-key-here" "$ENV_FILE" 2>/dev/null; then
-    echo "  ✓ API key already configured"
+if [ -f "$ENV_FILE" ] && grep -q "GOOGLE_GENAI_USE_VERTEXAI=True" "$ENV_FILE" 2>/dev/null; then
+    echo "  ✓ Vertex AI already configured"
 else
-    echo "  You need a free Google AI Studio API key."
-    echo "  Get one here: https://aistudio.google.com/apikey"
-    echo ""
-    read -rp "  Paste your API key: " api_key
+    echo "GOOGLE_GENAI_USE_VERTEXAI=True" > "$ENV_FILE"
+    echo "  ✓ Vertex AI enabled in .env"
+fi
 
-    if [ -z "$api_key" ]; then
-        echo "  ✗ No API key provided. You can add it later to .env"
-        cp -n "$SCRIPT_DIR/.env.example" "$ENV_FILE" 2>/dev/null || true
+# Check for gcloud + application default credentials
+if ! command -v gcloud &>/dev/null && [ ! -f "$HOME/google-cloud-sdk/bin/gcloud" ]; then
+    echo ""
+    echo "  ⚠ Google Cloud SDK not found."
+    echo "    Install it: https://cloud.google.com/sdk/docs/install"
+    echo "    Then run: gcloud auth application-default login"
+else
+    GCLOUD_CMD="gcloud"
+    [ -f "$HOME/google-cloud-sdk/bin/gcloud" ] && GCLOUD_CMD="$HOME/google-cloud-sdk/bin/gcloud"
+    if ! "$GCLOUD_CMD" auth application-default print-access-token &>/dev/null; then
+        echo ""
+        echo "  ⚠ GCP credentials not set up."
+        echo "    Run: $GCLOUD_CMD auth application-default login"
     else
-        echo "GOOGLE_API_KEY=$api_key" > "$ENV_FILE"
-        echo "  ✓ API key saved to .env"
+        echo "  ✓ GCP credentials"
     fi
 fi
 

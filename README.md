@@ -19,7 +19,7 @@
 Two things you need first:
 
 1. **[Wispr Flow](https://wispr.com)** — install it and do one test recording so it's set up
-2. **[Google AI Studio API key](https://aistudio.google.com/apikey)** — free, takes 30 seconds to create
+2. **[Google Cloud SDK](https://cloud.google.com/sdk/docs/install)** — for Gemini note generation via Vertex AI
 
 Then open **Terminal** (press `Cmd+Space`, type "Terminal", hit Enter) and paste this:
 
@@ -27,14 +27,19 @@ Then open **Terminal** (press `Cmd+Space`, type "Terminal", hit Enter) and paste
 curl -fsSL https://raw.githubusercontent.com/yashsmehta/wispr-unleashed/main/get.sh | bash
 ```
 
-The installer checks everything, installs what's needed, asks for your API key, and sets up the keyboard shortcut. It takes about a minute.
+The installer checks everything, installs what's needed, and sets up the keyboard shortcut.
+
+> **First time?** After installing the Google Cloud SDK, run this once to log in:
+> ```bash
+> gcloud auth application-default login
+> ```
 
 ## Usage
 
 **Option A — Keyboard shortcut** (recommended):
 
-> Press `Option+Shift+W` → type a title → hit Start.<br>
-> Press `Option+Shift+W` again to stop. Notes appear in Obsidian.
+> Press `Option+Shift+W` to start recording.<br>
+> Press `Option+Shift+W` again to stop. Pick a folder and notes appear in Obsidian.
 
 **Option B — Terminal:**
 
@@ -63,7 +68,6 @@ Everything works out of the box. To customize, edit `~/wispr-unleashed/.env`:
 
 | Setting | Default | What it does |
 |:---|:---|:---|
-| `GOOGLE_API_KEY` | — | Your API key *(set during install)* |
 | `OBSIDIAN_VAULT` | `~/Desktop/Obsidian Vault` | Where notes are saved |
 | `TRANSCRIPTS_DIR` | `$OBSIDIAN_VAULT/Transcripts` | Where raw transcripts go |
 | `GEMINI_MODEL` | `gemini-3.1-flash-lite-preview` | AI model for note generation |

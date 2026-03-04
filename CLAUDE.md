@@ -67,7 +67,7 @@ bash install.sh
 
 **`setup.sh`** — Installs an Automator Quick Action (`~/Library/Services/Wispr Unleashed.workflow/`) so the user can bind Option+Shift+W to toggle recording. Generates both `Info.plist` and `document.wflow`, then flushes the macOS services cache.
 
-**`install.sh`** — Interactive installer: checks Python, checks Wispr Flow, installs pip deps, prompts for API key, optionally runs `setup.sh`.
+**`install.sh`** — Interactive installer: checks Python, checks Wispr Flow, installs pip deps, configures Vertex AI in `.env`, checks for GCP credentials, optionally runs `setup.sh`.
 
 ## Configuration
 
@@ -75,7 +75,7 @@ All configuration is via environment variables (`.env` file loaded automatically
 
 | Variable | Default | Description |
 |---|---|---|
-| `GOOGLE_API_KEY` | *(required)* | Google AI Studio API key for note generation |
+| `GOOGLE_GENAI_USE_VERTEXAI` | `True` | Must be `True` — uses Vertex AI with GCP credentials |
 | `USER_NAME` | *(empty)* | Your name — used in note generation context |
 | `OBSIDIAN_VAULT` | `~/Desktop/Obsidian Vault` | Path to Obsidian vault (for note output and folder picker) |
 | `TRANSCRIPTS_DIR` | `$OBSIDIAN_VAULT/Transcripts` | Where raw transcript files are saved |
@@ -84,7 +84,7 @@ All configuration is via environment variables (`.env` file loaded automatically
 ## Important Details
 
 - Wispr Flow must be installed and used at least once (so the SQLite DB exists)
-- A `GOOGLE_API_KEY` is required for auto-generated meeting notes (get one at [Google AI Studio](https://aistudio.google.com/apikey))
+- `GOOGLE_GENAI_USE_VERTEXAI=True` must be set in `.env` — note generation uses Vertex AI with GCP credentials (not a personal API key)
 - Transcriptions are matched by `transcriptEntityId` to avoid duplicates; the `known_ids` set tracks already-processed chunks
 - Signal handling: first Ctrl+C triggers graceful shutdown with drain; second forces exit
 - Arrow key input in the folder picker (`ui.py`) uses `os.read(fd, 1)` directly (not `sys.stdin.read`) to avoid Python's `BufferedReader` consuming escape sequence bytes before `select.select` can detect them
