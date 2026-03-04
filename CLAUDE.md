@@ -22,7 +22,7 @@ bash toggle.sh
 ## Architecture
 
 **`record.py`** — Core recording loop:
-- Cycles Wispr Flow hands-free recording in ~4m40s chunks (before the 6-min hard limit)
+- Cycles Wispr Flow hands-free recording in ~5-minute chunks (before the 6-min hard limit)
 - Polls `~/Library/Application Support/Wispr Flow/flow.sqlite` (read-only) for new transcriptions
 - Appends each chunk to a timestamped markdown file in `TRANSCRIPTS_DIR`
 - On shutdown: drains in-flight transcription, writes session summary footer, then calls Gemini API to generate meeting notes saved as a separate file in the user's Obsidian vault
