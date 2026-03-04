@@ -14,23 +14,32 @@
 
 ---
 
-## Quick Start
+## Setup
+
+You need [Wispr Flow](https://wispr.com) installed and a free [Google AI Studio API key](https://aistudio.google.com/apikey).
+
+Then open Terminal and run:
 
 ```bash
 git clone https://github.com/yashsmehta/wispr-unleashed.git
 cd wispr-unleashed
-pip install python-dotenv google-genai
+bash install.sh
 ```
 
-Get a free API key from [Google AI Studio](https://aistudio.google.com/apikey), then:
+The installer walks you through everything — installs dependencies, saves your API key, and optionally sets up a keyboard shortcut.
+
+## Usage
+
+**From Terminal:**
 
 ```bash
-cp .env.example .env
-# paste your GOOGLE_API_KEY into .env
-
 python3 record.py "Weekly Standup"
-# Ctrl+C to stop → notes generated automatically
+# press Ctrl+C to stop → notes are generated automatically
 ```
+
+**From anywhere** (after setting up the keyboard shortcut):
+
+Press `Option+Shift+W` → type a meeting title → press Start. Press `Option+Shift+W` again to stop and generate notes.
 
 ## How It Works
 
@@ -38,53 +47,32 @@ python3 record.py "Weekly Standup"
   <img src="assets/diagram.png" alt="Recording pipeline" width="100%">
 </p>
 
-1. Opens Wispr Flow hands-free recording via URL scheme
-2. Every 5 minutes, silently stops and restarts — cycling chunks before the 6-min limit
-3. Polls Wispr's SQLite database for completed transcriptions, stitches them into a single markdown file
-4. On `Ctrl+C`, drains the last in-flight chunk and sends the full transcript to Gemini
-5. Saves structured notes to your chosen Obsidian folder
-
-## Keyboard Shortcut
-
-Set up `Option+Shift+W` to toggle recording from anywhere:
-
-```bash
-bash setup.sh
-```
-
-Then in **System Settings > Keyboard > Keyboard Shortcuts > Services**, assign the shortcut to "Wispr Unleashed".
-
-One press starts recording (prompts for a title). Another press stops and generates notes.
+1. Opens Wispr Flow hands-free recording
+2. Every 5 minutes, silently cycles to a new chunk (staying under the 6-min limit)
+3. Stitches transcriptions into a single markdown file
+4. On stop, sends the full transcript to Gemini and saves structured notes to your Obsidian vault
 
 ## Note Generation
 
-Notes are generated with **category-aware prompts** — the system detects your Obsidian folder structure and adapts:
+Notes adapt to what you're recording — the system detects your Obsidian folder structure:
 
-| Category | Optimized for |
+| If you save to... | You get notes optimized for... |
 |:---|:---|
-| **Meetings** | Action items, decisions, key ideas grouped by topic |
-| **Talks / Lectures / Seminars** | Core argument, methods, results, references, worked examples |
+| **Meetings** folder | Action items, decisions, key ideas by topic |
+| **Talks / Lectures / Seminars** folder | Core argument, methods, results, references |
 
-Output uses Obsidian-flavored markdown: callouts, highlights, LaTeX, and tables where they aid clarity.
+Output uses Obsidian-flavored markdown with callouts, highlights, LaTeX, and tables.
 
 ## Configuration
 
-All settings via `.env`:
+All optional — the defaults work out of the box. Edit `.env` to customize:
 
 | Variable | Default | Description |
 |:---|:---|:---|
-| `GOOGLE_API_KEY` | — | Google AI Studio API key *(required)* |
+| `GOOGLE_API_KEY` | — | Your API key *(set during install)* |
 | `OBSIDIAN_VAULT` | `~/Documents/Obsidian Vault` | Path to your Obsidian vault |
 | `TRANSCRIPTS_DIR` | `$OBSIDIAN_VAULT/Transcripts` | Where raw transcripts go |
-| `GEMINI_MODEL` | `gemini-3-flash-preview` | Model for note generation |
-
-## Prerequisites
-
-- **macOS** — uses AppleScript and URL schemes
-- **[Wispr Flow](https://wispr.com)** — installed and used at least once
-- **Python 3.10+**
-- **[Google AI Studio API key](https://aistudio.google.com/apikey)** — free tier available
-- **Obsidian** *(optional)* — for folder picker and vault integration
+| `GEMINI_MODEL` | `gemini-3-flash-preview` | Gemini model for note generation |
 
 ## License
 
