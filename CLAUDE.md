@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Wispr Unleashed is a macOS tool that records meeting audio using [Wispr Flow](https://wispr.com) and produces transcribed markdown files. It works around Wispr Flow's 6-minute recording limit by cycling recording chunks automatically (~4m55s each), polling Wispr's SQLite database for completed transcriptions, and stitching them into a single markdown file. After recording ends, it calls the Gemini API to generate dense meeting notes from the transcript.
+Wispr Unleashed is a macOS tool that records meeting audio using [Wispr Flow](https://wispr.com) and produces transcribed markdown files. It works around Wispr Flow's 6-minute recording limit by cycling recording chunks automatically (~4m55s each), polling Wispr's SQLite database for completed transcriptions, and stitching them into a single markdown file. After recording ends, it calls the Gemini API to generate structured meeting notes (two separate LLM calls: one for notes, one for action items).
 
 ## Key Commands
 
@@ -27,19 +27,25 @@ bash install.sh
 
 ## Architecture
 
-**`record.py`** — Core recording loop:
+**`record.py`** — Core recording loop and file I/O:
 - Cycles Wispr Flow hands-free recording in ~4m55s chunks (`RECORD_DURATION = 295`)
 - Polls `~/Library/Application Support/Wispr Flow/flow.sqlite` (read-only) for new transcriptions
 - Appends each chunk to a timestamped markdown file in `TRANSCRIPTS_DIR`
 - Sets terminal window title to `wispr-recording` so `focus_terminal()` can target the correct window via AppleScript (prevents Wispr paste going to wrong terminal)
 - On shutdown: drains in-flight transcription, writes session summary footer
-- Post-recording interactive flow: prompt for title → folder picker → Gemini note generation
+- Post-recording interactive flow: prompt for title → folder picker → note generation via `llm.py`
 - Notes are saved as `{num:02d} {Title}.md` with YAML `date:` frontmatter in the chosen Obsidian folder
 - Auto-numbers notes sequentially within each folder
-- Category-aware prompts: meetings get a "meeting notes" prompt; talks/lectures/seminars get a "talk notes" prompt
-- Prompts include user's `Glossary.md` (known terms) — new technical terms are flagged in a `> [!study] New Terms` callout
-- Uses `USER_NAME` env var to correctly attribute action items to the recorder
 - Uses a PID file at `/tmp/wispr-unleashed.pid` for toggle coordination
+
+**`llm.py`** — Gemini LLM calls for note generation:
+- Two parallel API calls per meeting: one for structured notes, one for action items (via `ThreadPoolExecutor`)
+- Talks/lectures get a single notes call (no action items)
+- Category-aware prompts: meetings get a "meeting notes" prompt; talks/lectures/seminars get a "talk notes" prompt
+- Action items are unattributed project tasks (no person assignment) — specific and detailed
+- Prompts include user's `Glossary.md` (known terms) — new technical terms are flagged in a `> [!study] New Terms` callout
+- Both calls use `thinking_level="high"` for better reasoning
+- Gemini client and obsidian-reference file are cached (`@lru_cache`)
 
 **`toggle.sh`** — Keyboard shortcut handler: if recording is running (PID file exists), sends SIGINT to stop; otherwise opens a new Terminal window and starts `record.py`.
 
@@ -54,10 +60,10 @@ All configuration is via environment variables (`.env` file loaded automatically
 | Variable | Default | Description |
 |---|---|---|
 | `GOOGLE_API_KEY` | *(required)* | Google AI Studio API key for note generation |
-| `USER_NAME` | *(empty)* | Your name — used for action item attribution in notes |
-| `OBSIDIAN_VAULT` | `~/Documents/Obsidian Vault` | Path to Obsidian vault (for note output and folder picker) |
+| `USER_NAME` | *(empty)* | Your name — used in note generation context |
+| `OBSIDIAN_VAULT` | `~/Desktop/Obsidian Vault` | Path to Obsidian vault (for note output and folder picker) |
 | `TRANSCRIPTS_DIR` | `$OBSIDIAN_VAULT/Transcripts` | Where raw transcript files are saved |
-| `GEMINI_MODEL` | `gemini-3-flash-preview` | Gemini model to use for note generation |
+| `GEMINI_MODEL` | `gemini-3.1-flash-lite-preview` | Gemini model to use for note generation |
 
 ## Important Details
 

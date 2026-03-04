@@ -55,7 +55,7 @@ Press `Ctrl+C` to stop. Notes are generated automatically.
 3. Stitches transcriptions into a single markdown file
 4. On stop, sends the full transcript to Gemini and saves structured notes to your Obsidian vault
 
-Notes adapt to what you're recording — save to a **Meetings** folder and you get action items and decisions; save to **Talks** or **Lectures** and you get structured academic notes.
+Notes adapt to what you're recording — save to a project folder and you get detailed action items alongside your notes; save to **Talks** or **Lectures** and you get structured academic notes without action items.
 
 ## Configuration
 
@@ -64,9 +64,9 @@ Everything works out of the box. To customize, edit `~/wispr-unleashed/.env`:
 | Setting | Default | What it does |
 |:---|:---|:---|
 | `GOOGLE_API_KEY` | — | Your API key *(set during install)* |
-| `OBSIDIAN_VAULT` | `~/Documents/Obsidian Vault` | Where notes are saved |
+| `OBSIDIAN_VAULT` | `~/Desktop/Obsidian Vault` | Where notes are saved |
 | `TRANSCRIPTS_DIR` | `$OBSIDIAN_VAULT/Transcripts` | Where raw transcripts go |
-| `GEMINI_MODEL` | `gemini-3-flash-preview` | AI model for note generation |
+| `GEMINI_MODEL` | `gemini-3.1-flash-lite-preview` | AI model for note generation |
 
 ## License
 

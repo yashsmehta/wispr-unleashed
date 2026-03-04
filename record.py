@@ -29,76 +29,16 @@ load_dotenv()
 # ── Constants ────────────────────────────────────────────────────────────────
 
 WISPR_DB = Path.home() / "Library" / "Application Support" / "Wispr Flow" / "flow.sqlite"
-OBSIDIAN_VAULT = Path(os.getenv("OBSIDIAN_VAULT", str(Path.home() / "Documents" / "Obsidian Vault")))
+OBSIDIAN_VAULT = Path(os.getenv("OBSIDIAN_VAULT", str(Path.home() / "Desktop" / "Obsidian Vault")))
 TRANSCRIPTS_DIR = Path(os.getenv("TRANSCRIPTS_DIR", str(OBSIDIAN_VAULT / "Transcripts")))
 PID_FILE = Path("/tmp/wispr-unleashed.pid")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
 USER_NAME = os.getenv("USER_NAME", "")
-_OBSIDIAN_REF = Path(__file__).parent / "obsidian-reference.md"
-_GLOSSARY = OBSIDIAN_VAULT / "Glossary.md"
 POLL_INTERVAL = 5        # seconds between DB polls while recording
 POLL_FAST = 1            # seconds between DB polls while waiting for transcription
 RECORD_DURATION = 295    # 4m55s — stop just before Wispr's 5-min warning
 PROCESS_TIMEOUT = 30     # seconds to wait for transcription after stopping
 MAX_DURATION = 2 * 60 * 60  # 2 hour hard limit
 DRAIN_TIMEOUT = 15       # seconds to wait for in-flight chunk after Ctrl+C
-
-MEETING_NOTES_PROMPT = """\
-You are processing a raw transcript of a research meeting — typically a discussion about a research project with a professor or collaborators.
-
-Rules:
-- Start with `# N: Title` where N is the meeting number provided below. The title should be short, punchy, and descriptive of the key topics (e.g. "# 11: Pre-ReLU Analysis & Paper Strategy"). NOT a paper title, NOT the date, NOT generic labels. Keep the title under 8 words
-- Extract the key ideas, questions, and technical details discussed
-- Capture any suggested approaches, references, or directions that came up
-- If someone agreed to do something, note it as an action item with their name. Pay close attention to WHO is committing to each action — distinguish the recorder from other participants using context clues (e.g. "I'll do X" vs "can you do X")
-- Group by topic, not chronological order — let the structure emerge from the content
-- Preserve specific paper names, method names, equations, URLs, and proper nouns exactly
-- Use terse bullet points — no filler, no "we discussed", no meta-commentary
-- Be concise — every word must carry information
-- Use whatever heading structure best fits the content — don't force a rigid template
-- Use Obsidian-flavored markdown: callouts (`> [!tip]`, `> [!question]`, `> [!todo]`, etc.), ==highlights== for key results, $LaTeX$ for math, and tables where they aid clarity. See the formatting reference below for available features.
-- Do NOT include any preamble, disclaimer, or labels — just the notes
-- Keep whitespace minimal — no extra blank lines between sections. One blank line before headings, no blank lines between bullet points
-- At the end, add a `> [!study] New Terms` callout listing any technical terms, concepts, or techniques from the transcript that are NOT in the user's known glossary (provided below). Give each a brief 1-2 sentence definition. Skip this section if there are no new terms.
-"""
-
-TALK_NOTES_PROMPT = """\
-You are processing a raw transcript of an academic presentation — either a research talk (~45 min, one speaker presenting their work) or a class lecture (~1 hour).
-
-Rules:
-- Start with a `# Title` — short, punchy, and descriptive of the key topics (e.g. "Attention Is All You Need" or "Convex Optimization Basics"). NOT the date, NOT generic labels like "Lecture Notes". Keep it under 8 words
-- Capture the core argument: what problem, what approach, why it matters, what they found
-- Extract key ideas, concepts, and distinctions the speaker introduces
-- Note methods, results, and any specific numbers or comparisons
-- Record referenced papers, people, and tools
-- For classes: capture definitions, frameworks, and worked examples
-- Note open problems, limitations, or future directions the speaker raises
-- Preserve technical terms, equations, and proper nouns exactly
-- Use terse bullet points — no filler, no "the speaker discussed"
-- Be concise — every word must carry information
-- Use whatever heading structure best fits the content — don't force a rigid template
-- Use Obsidian-flavored markdown: callouts (`> [!tip]`, `> [!question]`, `> [!example]`, etc.), ==highlights== for key results, $LaTeX$ for math, and tables where they aid clarity. See the formatting reference below for available features.
-- Do NOT include any preamble, disclaimer, or labels — just the notes
-- Keep whitespace minimal — no extra blank lines between sections. One blank line before headings, no blank lines between bullet points
-- At the end, add a `> [!study] New Terms` callout listing any technical terms, concepts, or techniques from the transcript that are NOT in the user's known glossary (provided below). Give each a brief 1-2 sentence definition. Skip this section if there are no new terms.
-"""
-
-_TALK_CATEGORIES = {"Talks", "Classes", "Lectures", "Seminars"}
-
-
-def _get_notes_prompt(category: str | None) -> str:
-    base = TALK_NOTES_PROMPT if category and category in _TALK_CATEGORIES else MEETING_NOTES_PROMPT
-    if USER_NAME:
-        base += f"\nThe transcript was recorded by {USER_NAME}. {USER_NAME} is the one doing the work — in research meetings, the other person is typically the supervisor giving direction. Unless clearly stated otherwise, action items should be attributed to {USER_NAME}.\n"
-    try:
-        base += "\n\nOBSIDIAN FORMATTING REFERENCE:\n" + _OBSIDIAN_REF.read_text()
-    except FileNotFoundError:
-        pass
-    try:
-        base += "\n\nUSER'S KNOWN GLOSSARY (do NOT define these — only flag terms NOT in this list):\n" + _GLOSSARY.read_text()
-    except FileNotFoundError:
-        pass
-    return base
 
 # ── Terminal formatting ──────────────────────────────────────────────────────
 
@@ -439,16 +379,6 @@ def write_footer(md_path: Path, stats: dict):
         f.write(f"*Ended {end_time} · {rec_minutes}m{rec_seconds:02d}s · {stats['words']:,} words*\n")
 
 
-def _get_gemini_client():
-    """Return a Gemini client using GOOGLE_API_KEY from env, or None."""
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        return None
-    os.environ.pop("GOOGLE_GENAI_USE_VERTEXAI", None)
-    from google import genai
-    return genai.Client(api_key=api_key)
-
-
 def _next_meeting_number(folder: Path) -> int:
     """Count existing .md files in folder to determine the next meeting number."""
     if not folder.exists():
@@ -459,40 +389,28 @@ def _next_meeting_number(folder: Path) -> int:
 def generate_notes(transcript_path: Path, dest_dir: Path, heading: str,
                    category: str | None = None):
     """Generate notes from transcript using Gemini and save to dest_dir."""
+    import llm
+
     transcript = transcript_path.read_text()
     if not transcript.strip():
         put(f"{DIM}skipped notes — empty transcript{RESET}")
         return
 
-    client = _get_gemini_client()
-    if client is None:
-        put(f"{DIM}skipped notes — no API key{RESET}")
-        return
-
-    from google.genai import types
-
     meeting_num = _next_meeting_number(dest_dir)
-    prompt = _get_notes_prompt(category)
-    prompt += f"\nThis is meeting #{meeting_num} in this series. Start the title as `# {meeting_num}: <title>`.\n"
+    put(f"{DIM}generating notes…{RESET}")
 
     try:
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt + "\n\nTRANSCRIPT:\n" + transcript,
-            config=types.GenerateContentConfig(temperature=0.3),
-        )
+        result = llm.generate_notes(transcript, category, meeting_num, vault=OBSIDIAN_VAULT)
     except Exception as exc:
         put(f"{DIM}notes failed — {type(exc).__name__}{RESET}")
         return
 
-    if not response.text or not response.text.strip():
-        put(f"{DIM}notes failed — empty response{RESET}")
+    if result is None:
+        put(f"{DIM}notes failed — no API key or empty response{RESET}")
         return
 
-    notes = re.sub(r"\n{3,}", "\n\n", response.text.strip())
-
     # Extract title from generated heading to build filename
-    first_line = notes.split("\n")[0]
+    first_line = result.split("\n")[0]
     title_match = re.match(r"^#\s*(\d+):\s*(.+)$", first_line)
     if title_match:
         num = int(title_match.group(1))
@@ -503,7 +421,7 @@ def generate_notes(transcript_path: Path, dest_dir: Path, heading: str,
 
     # Add YAML frontmatter with date
     date_str = datetime.now().strftime("%Y-%m-%d")
-    content = f"---\ndate: {date_str}\n---\n\n{notes}\n"
+    content = f"---\ndate: {date_str}\n---\n\n{result}\n"
 
     notes_path = dest_dir / filename
     notes_path.write_text(content)
