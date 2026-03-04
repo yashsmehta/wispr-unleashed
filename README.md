@@ -2,8 +2,6 @@
   <img src="assets/banner.png" alt="Wispr Unleashed" width="100%">
 </p>
 
-<h1 align="center">Wispr Unleashed</h1>
-
 <p align="center">
   <em>Bypass Wispr Flow's 6-minute recording limit. Record for hours. Get structured notes automatically.</em>
 </p>
