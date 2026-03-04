@@ -10,11 +10,11 @@
 
 <p align="center">
   <a href="https://wispr.com">Wispr Flow</a> is the best voice-to-text on macOS — but it caps at 6 minutes.<br>
-  This tool removes the limit by silently cycling recordings in 5-minute chunks,<br>
-  stitching transcriptions, and generating notes with Gemini when you stop.
+  This tool removes that limit. It silently cycles recordings in 5-minute chunks,<br>
+  stitches the transcriptions, and generates structured notes with Gemini.
 </p>
 
-<br>
+---
 
 ## Quick Start
 
@@ -102,8 +102,7 @@ Notes are generated with **category-aware prompts** — the system detects your 
 | Category | Optimized for |
 |:---|:---|
 | **Meetings** | Action items, decisions, key ideas grouped by topic |
-| **Talks / Lectures** | Core argument, methods, results, references |
-| **Seminars / Classes** | Definitions, frameworks, worked examples |
+| **Talks / Lectures / Seminars** | Core argument, methods, results, references, worked examples |
 
 Output uses Obsidian-flavored markdown: callouts, highlights, LaTeX, and tables where they aid clarity.
 
