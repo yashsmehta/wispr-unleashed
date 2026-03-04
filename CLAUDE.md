@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Wispr Clawd is a macOS tool that records meeting audio using [Wispr Flow](https://wispr.com) and produces transcribed markdown files. It works around Wispr Flow's 6-minute recording limit by cycling recording chunks automatically, polling Wispr's SQLite database for completed transcriptions, and stitching them into a single markdown file. After recording ends, it calls the Gemini API to generate dense meeting notes from the transcript.
+Wispr Unleashed is a macOS tool that records meeting audio using [Wispr Flow](https://wispr.com) and produces transcribed markdown files. It works around Wispr Flow's 6-minute recording limit by cycling recording chunks automatically, polling Wispr's SQLite database for completed transcriptions, and stitching them into a single markdown file. After recording ends, it calls the Gemini API to generate dense meeting notes from the transcript.
 
 ## Key Commands
 
@@ -27,11 +27,11 @@ bash toggle.sh
 - Appends each chunk to a timestamped markdown file in `TRANSCRIPTS_DIR`
 - On shutdown: drains in-flight transcription, writes session summary footer, then calls Gemini API to generate meeting notes saved as a separate file in the user's Obsidian vault
 - Interactive folder picker lets you choose an Obsidian category/subfolder for the generated notes
-- Uses a PID file at `/tmp/wispr-clawd.pid` for toggle coordination
+- Uses a PID file at `/tmp/wispr-unleashed.pid` for toggle coordination
 
 **`toggle.sh`** — Keyboard shortcut handler: if recording is running (PID file exists), sends SIGINT to stop; otherwise prompts for a meeting title via `osascript` dialog and starts `record.py` in the background.
 
-**`setup.sh`** — Installs an Automator Quick Action (`~/Library/Services/Wispr Clawd.workflow/`) so the user can bind Option+Shift+W to toggle recording.
+**`setup.sh`** — Installs an Automator Quick Action (`~/Library/Services/Wispr Unleashed.workflow/`) so the user can bind Option+Shift+W to toggle recording.
 
 ## Configuration
 

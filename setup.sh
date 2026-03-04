@@ -4,9 +4,9 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-WORKFLOW_DIR="$HOME/Library/Services/Wispr Clawd.workflow/Contents"
+WORKFLOW_DIR="$HOME/Library/Services/Wispr Unleashed.workflow/Contents"
 
-echo "Setting up Wispr Clawd keyboard shortcut..."
+echo "Setting up Wispr Unleashed keyboard shortcut..."
 
 # Create the Automator Quick Action
 mkdir -p "$WORKFLOW_DIR"
@@ -99,7 +99,7 @@ echo ""
 echo "Now assign the keyboard shortcut:"
 echo "  1. Open System Settings → Keyboard → Keyboard Shortcuts → Services"
 echo "  2. Scroll to 'General' section"
-echo "  3. Find 'Wispr Clawd' and click 'Add Shortcut'"
+echo "  3. Find 'Wispr Unleashed' and click 'Add Shortcut'"
 echo "  4. Press Option+Shift+W"
 echo ""
 echo "Opening System Settings for you..."

@@ -31,7 +31,7 @@ load_dotenv()
 WISPR_DB = Path.home() / "Library" / "Application Support" / "Wispr Flow" / "flow.sqlite"
 OBSIDIAN_VAULT = Path(os.getenv("OBSIDIAN_VAULT", str(Path.home() / "Documents" / "Obsidian Vault")))
 TRANSCRIPTS_DIR = Path(os.getenv("TRANSCRIPTS_DIR", str(OBSIDIAN_VAULT / "Transcripts")))
-PID_FILE = Path("/tmp/wispr-clawd.pid")
+PID_FILE = Path("/tmp/wispr-unleashed.pid")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
 _OBSIDIAN_REF = Path(__file__).parent / "obsidian-reference.md"
 POLL_INTERVAL = 5        # seconds between DB polls while recording
@@ -463,7 +463,7 @@ def generate_notes(transcript_path: Path, notes_path: Path, heading: str,
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: wispr <meeting title>")
+        print("Usage: wispr-unleashed <meeting title>")
         sys.exit(1)
 
     heading = sys.argv[1]
@@ -495,7 +495,7 @@ def main():
 
     signal.signal(signal.SIGINT, handle_sigint)
 
-    print(f"\n  {BOLD}wispr{RESET} {DIM}·{RESET} {heading}\n")
+    print(f"\n  {BOLD}unleashed{RESET} {DIM}·{RESET} {heading}\n")
 
     fd = sys.stdin.fileno() if interactive else -1
     old_term = termios.tcgetattr(fd) if interactive else None

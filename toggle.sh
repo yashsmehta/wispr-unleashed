@@ -1,10 +1,10 @@
 #!/bin/bash
-# Toggle wispr-clawd recording on/off.
+# Toggle wispr-unleashed recording on/off.
 # Designed to be triggered by a keyboard shortcut (Option+Shift+W).
 
-PID_FILE="/tmp/wispr-clawd.pid"
+PID_FILE="/tmp/wispr-unleashed.pid"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LOG="/tmp/wispr-clawd.log"
+LOG="/tmp/wispr-unleashed.log"
 
 # ── If already running, stop it ──────────────────────────────────────────────
 if [ -f "$PID_FILE" ]; then
@@ -18,7 +18,7 @@ fi
 
 # ── Not running — prompt for title and start ─────────────────────────────────
 title=$(osascript -e '
-    text returned of (display dialog "Meeting title:" default answer "" with title "Wispr" buttons {"Cancel", "Start"} default button "Start")
+    text returned of (display dialog "Meeting title:" default answer "" with title "Wispr Unleashed" buttons {"Cancel", "Start"} default button "Start")
 ' 2>/dev/null) || exit 0
 [ -z "$title" ] && exit 0
 
