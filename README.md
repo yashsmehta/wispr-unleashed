@@ -14,32 +14,32 @@
 
 ---
 
-## Setup
+## Install
 
-You need [Wispr Flow](https://wispr.com) installed and a free [Google AI Studio API key](https://aistudio.google.com/apikey).
+Before you start: install [Wispr Flow](https://wispr.com) and grab a free API key from [Google AI Studio](https://aistudio.google.com/apikey).
 
-Then open Terminal and run:
+Then open **Terminal** (press `Cmd+Space`, type "Terminal", hit Enter) and paste:
 
 ```bash
-git clone https://github.com/yashsmehta/wispr-unleashed.git
-cd wispr-unleashed
-bash install.sh
+curl -fsSL https://raw.githubusercontent.com/yashsmehta/wispr-unleashed/main/get.sh | bash
 ```
 
-The installer walks you through everything — installs dependencies, saves your API key, and optionally sets up a keyboard shortcut.
+That's it. The installer will guide you through the rest.
 
 ## Usage
 
-**From Terminal:**
+**Option A — Keyboard shortcut** (recommended):
+
+> Press `Option+Shift+W` → type a title → hit Start.<br>
+> Press `Option+Shift+W` again to stop. Notes appear in Obsidian.
+
+**Option B — Terminal:**
 
 ```bash
-python3 record.py "Weekly Standup"
-# press Ctrl+C to stop → notes are generated automatically
+python3 ~/wispr-unleashed/record.py "Meeting Title"
 ```
 
-**From anywhere** (after setting up the keyboard shortcut):
-
-Press `Option+Shift+W` → type a meeting title → press Start. Press `Option+Shift+W` again to stop and generate notes.
+Press `Ctrl+C` to stop. Notes are generated automatically.
 
 ## How It Works
 
@@ -52,27 +52,18 @@ Press `Option+Shift+W` → type a meeting title → press Start. Press `Option+S
 3. Stitches transcriptions into a single markdown file
 4. On stop, sends the full transcript to Gemini and saves structured notes to your Obsidian vault
 
-## Note Generation
-
-Notes adapt to what you're recording — the system detects your Obsidian folder structure:
-
-| If you save to... | You get notes optimized for... |
-|:---|:---|
-| **Meetings** folder | Action items, decisions, key ideas by topic |
-| **Talks / Lectures / Seminars** folder | Core argument, methods, results, references |
-
-Output uses Obsidian-flavored markdown with callouts, highlights, LaTeX, and tables.
+Notes adapt to what you're recording — save to a **Meetings** folder and you get action items and decisions; save to **Talks** or **Lectures** and you get structured academic notes.
 
 ## Configuration
 
-All optional — the defaults work out of the box. Edit `.env` to customize:
+Everything works out of the box. To customize, edit `~/wispr-unleashed/.env`:
 
-| Variable | Default | Description |
+| Setting | Default | What it does |
 |:---|:---|:---|
 | `GOOGLE_API_KEY` | — | Your API key *(set during install)* |
-| `OBSIDIAN_VAULT` | `~/Documents/Obsidian Vault` | Path to your Obsidian vault |
+| `OBSIDIAN_VAULT` | `~/Documents/Obsidian Vault` | Where notes are saved |
 | `TRANSCRIPTS_DIR` | `$OBSIDIAN_VAULT/Transcripts` | Where raw transcripts go |
-| `GEMINI_MODEL` | `gemini-3-flash-preview` | Gemini model for note generation |
+| `GEMINI_MODEL` | `gemini-3-flash-preview` | AI model for note generation |
 
 ## License
 
