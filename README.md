@@ -16,15 +16,18 @@
 
 ## Install
 
-Before you start: install [Wispr Flow](https://wispr.com) and grab a free API key from [Google AI Studio](https://aistudio.google.com/apikey).
+Two things you need first:
 
-Then open **Terminal** (press `Cmd+Space`, type "Terminal", hit Enter) and paste:
+1. **[Wispr Flow](https://wispr.com)** — install it and do one test recording so it's set up
+2. **[Google AI Studio API key](https://aistudio.google.com/apikey)** — free, takes 30 seconds to create
+
+Then open **Terminal** (press `Cmd+Space`, type "Terminal", hit Enter) and paste this:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yashsmehta/wispr-unleashed/main/get.sh | bash
 ```
 
-That's it. The installer will guide you through the rest.
+The installer checks everything, installs what's needed, asks for your API key, and sets up the keyboard shortcut. It takes about a minute.
 
 ## Usage
 
