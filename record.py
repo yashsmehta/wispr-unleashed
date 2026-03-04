@@ -463,7 +463,7 @@ def generate_notes(transcript_path: Path, notes_path: Path, heading: str,
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: wispr-unleashed <meeting title>")
+        print("Usage: python3 record.py <meeting title>")
         sys.exit(1)
 
     heading = sys.argv[1]
@@ -495,14 +495,13 @@ def main():
 
     signal.signal(signal.SIGINT, handle_sigint)
 
-    print(f"\n  {BOLD}unleashed{RESET} {DIM}·{RESET} {heading}\n")
+    print(f"\n  {BOLD}wispr{RESET} {DIM}·{RESET} {heading}\n")
 
     fd = sys.stdin.fileno() if interactive else -1
     old_term = termios.tcgetattr(fd) if interactive else None
 
     def redraw(active):
-        draw_dots(stats["chunks"], active=active,
-                  suffix=folder_picker.label() if interactive else "")
+        draw_dots(stats["chunks"], active=active)
 
     try:
         if interactive:
@@ -531,14 +530,7 @@ def main():
                 if interactive:
                     readable, _, _ = select.select([sys.stdin], [], [], interval)
                     if readable:
-                        if not folder_picker.completed:
-                            try:
-                                folder_picker.run(raw_mode=True)
-                            except (KeyboardInterrupt, EOFError):
-                                pass
-                            redraw(active=recording_active)
-                        else:
-                            flush_stdin()
+                        flush_stdin()
                 else:
                     time.sleep(interval)
 
@@ -590,11 +582,11 @@ def main():
         write_footer(md_path, stats)
 
         if stats["chunks"] > 0 and interactive:
-            if not folder_picker.completed:
-                try:
-                    folder_picker.run(raw_mode=False)
-                except (KeyboardInterrupt, EOFError):
-                    pass
+            put(f"{DIM}pick a folder for notes (esc to skip):{RESET}")
+            try:
+                folder_picker.run(raw_mode=False)
+            except (KeyboardInterrupt, EOFError):
+                pass
 
             notes_path = folder_picker.get_destination(heading)
             if notes_path:
