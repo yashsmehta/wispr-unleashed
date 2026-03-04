@@ -4,7 +4,6 @@
 
 PID_FILE="/tmp/wispr-unleashed.pid"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LOG="/tmp/wispr-unleashed.log"
 
 # ── If already running, stop it ──────────────────────────────────────────────
 if [ -f "$PID_FILE" ]; then
@@ -16,12 +15,10 @@ if [ -f "$PID_FILE" ]; then
     rm -f "$PID_FILE"  # stale
 fi
 
-# ── Not running — prompt for title and start ─────────────────────────────────
-title=$(osascript -e '
-    text returned of (display dialog "Meeting title:" default answer "" with title "Wispr Unleashed" buttons {"Cancel", "Start"} default button "Start")
-' 2>/dev/null) || exit 0
-[ -z "$title" ] && exit 0
-
-# Start recording in background
-: > "$LOG"
-nohup python3 "$SCRIPT_DIR/record.py" "$title" >> "$LOG" 2>&1 &
+# ── Not running — open Terminal and start recording ──────────────────────────
+osascript -e "
+    tell application \"Terminal\"
+        activate
+        do script \"python3 '$SCRIPT_DIR/record.py'\"
+    end tell
+" 2>/dev/null

@@ -8,11 +8,37 @@ WORKFLOW_DIR="$HOME/Library/Services/Wispr Unleashed.workflow/Contents"
 
 echo "Setting up Wispr Unleashed keyboard shortcut..."
 
-# Create the Automator Quick Action
+# Remove old workflow if present
+rm -rf "$HOME/Library/Services/Wispr Unleashed.workflow"
 mkdir -p "$WORKFLOW_DIR"
 
+# Create Info.plist (required for macOS to detect the workflow)
 python3 -c "
-import plistlib, uuid, sys
+import plistlib
+
+info = {
+    'CFBundleName': 'Wispr Unleashed',
+    'CFBundleIdentifier': 'com.wispr-unleashed.shortcut',
+    'CFBundleVersion': '1.0',
+    'CFBundleShortVersionString': '1.0',
+    'CFBundleInfoDictionaryVersion': '6.0',
+    'CFBundlePackageType': 'BNDL',
+    'NSServices': [{
+        'NSMenuItem': {'default': 'Wispr Unleashed'},
+        'NSMessage': 'runWorkflowAsService',
+        'NSRequiredContext': {},
+        'NSSendTypes': [],
+        'NSReturnTypes': [],
+    }],
+}
+
+with open('$WORKFLOW_DIR/Info.plist', 'wb') as f:
+    plistlib.dump(info, f)
+"
+
+# Create the Automator workflow document
+python3 -c "
+import plistlib, uuid
 
 action_uuid = str(uuid.uuid4()).upper()
 
@@ -94,11 +120,15 @@ with open('$WORKFLOW_DIR/document.wflow', 'wb') as f:
     plistlib.dump(wflow, f)
 "
 
+# Force macOS to re-scan services
+/System/Library/CoreServices/pbs -flush 2>/dev/null || true
+killall -u "$USER" pbs 2>/dev/null || true
+
 echo "✓ Automator Quick Action installed"
 echo ""
 echo "Now assign the keyboard shortcut:"
 echo "  1. Open System Settings → Keyboard → Keyboard Shortcuts → Services"
-echo "  2. Scroll to 'General' section"
+echo "  2. Look for 'General' section (you may need to scroll or close and reopen)"
 echo "  3. Find 'Wispr Unleashed' and click 'Add Shortcut'"
 echo "  4. Press Option+Shift+W"
 echo ""
