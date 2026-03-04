@@ -34,52 +34,17 @@ python3 record.py "Weekly Standup"
 # Ctrl+C to stop → notes generated automatically
 ```
 
-<br>
-
 ## How It Works
 
-<table>
-<tr>
-<td width="50%">
+<p align="center">
+  <img src="assets/diagram.png" alt="Recording pipeline" width="100%">
+</p>
 
-**The recording loop:**
-
-1. Opens Wispr Flow hands-free recording
-2. Every 5 minutes, silently cycles to a new chunk
-3. Polls Wispr's database for completed transcriptions
-4. Stitches chunks into a single timestamped markdown file
-
-**When you stop** (`Ctrl+C`):
-
-5. Drains the last in-flight transcription
-6. Sends the full transcript to Gemini
-7. Saves structured notes to your Obsidian vault
-
-</td>
-<td width="50%">
-
-```
-  ┌──────────────────────────────┐
-  │     Wispr Flow (recording)   │
-  │  ┌─────┐ ┌─────┐ ┌─────┐   │
-  │  │ 5m  │→│ 5m  │→│ 5m  │→… │
-  │  └──┬──┘ └──┬──┘ └──┬──┘   │
-  └─────┼───────┼───────┼──────┘
-        ↓       ↓       ↓
-  ┌─────────────────────────────┐
-  │   Transcript (stitched md)  │
-  └──────────────┬──────────────┘
-                 ↓
-  ┌─────────────────────────────┐
-  │   Gemini → Structured Notes │
-  └─────────────────────────────┘
-```
-
-</td>
-</tr>
-</table>
-
-<br>
+1. Opens Wispr Flow hands-free recording via URL scheme
+2. Every 5 minutes, silently stops and restarts — cycling chunks before the 6-min limit
+3. Polls Wispr's SQLite database for completed transcriptions, stitches them into a single markdown file
+4. On `Ctrl+C`, drains the last in-flight chunk and sends the full transcript to Gemini
+5. Saves structured notes to your chosen Obsidian folder
 
 ## Keyboard Shortcut
 
@@ -93,8 +58,6 @@ Then in **System Settings > Keyboard > Keyboard Shortcuts > Services**, assign t
 
 One press starts recording (prompts for a title). Another press stops and generates notes.
 
-<br>
-
 ## Note Generation
 
 Notes are generated with **category-aware prompts** — the system detects your Obsidian folder structure and adapts:
@@ -105,8 +68,6 @@ Notes are generated with **category-aware prompts** — the system detects your 
 | **Talks / Lectures / Seminars** | Core argument, methods, results, references, worked examples |
 
 Output uses Obsidian-flavored markdown: callouts, highlights, LaTeX, and tables where they aid clarity.
-
-<br>
 
 ## Configuration
 
@@ -119,8 +80,6 @@ All settings via `.env`:
 | `TRANSCRIPTS_DIR` | `$OBSIDIAN_VAULT/Transcripts` | Where raw transcripts go |
 | `GEMINI_MODEL` | `gemini-3-flash-preview` | Model for note generation |
 
-<br>
-
 ## Prerequisites
 
 - **macOS** — uses AppleScript and URL schemes
@@ -128,8 +87,6 @@ All settings via `.env`:
 - **Python 3.10+**
 - **[Google AI Studio API key](https://aistudio.google.com/apikey)** — free tier available
 - **Obsidian** *(optional)* — for folder picker and vault integration
-
-<br>
 
 ## License
 
