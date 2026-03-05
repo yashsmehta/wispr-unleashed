@@ -1,6 +1,6 @@
 #!/bin/bash
 # Remote installer — curl this script to download and set up Wispr Unleashed.
-# Usage: curl -fsSL https://raw.githubusercontent.com/yashsmehta/wispr-unleashed/main/get.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/yashsmehta/wispr-unleashed/main/scripts/get.sh | bash
 
 set -e
 
@@ -27,4 +27,4 @@ echo "  ✓ Downloaded to $INSTALL_DIR"
 
 # Run the installer
 cd "$INSTALL_DIR"
-bash install.sh
+bash scripts/install.sh

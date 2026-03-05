@@ -16,13 +16,13 @@ python3 record.py
 python3 record.py "Meeting Title"
 
 # Install macOS keyboard shortcut (Option+Shift+W) via Automator Quick Action
-bash setup.sh
+bash scripts/setup.sh
 
 # Toggle recording on/off (used by the keyboard shortcut)
-bash toggle.sh
+bash scripts/toggle.sh
 
 # One-command install
-bash install.sh
+bash scripts/install.sh
 ```
 
 ## Architecture
@@ -63,11 +63,11 @@ bash install.sh
 - `talk_notes.md` — talk/lecture notes prompt
 - Loaded by `llm._read_prompt(name)` with `@lru_cache`
 
-**`toggle.sh`** — Keyboard shortcut handler: if recording is running (PID file exists), sends SIGINT to stop; otherwise opens a new Terminal window and starts `record.py`.
-
-**`setup.sh`** — Installs an Automator Quick Action (`~/Library/Services/Wispr Unleashed.workflow/`) so the user can bind Option+Shift+W to toggle recording. Generates both `Info.plist` and `document.wflow`, then flushes the macOS services cache.
-
-**`install.sh`** — Interactive installer: checks Python, checks Wispr Flow, installs pip deps, configures Vertex AI in `.env`, checks for GCP credentials, optionally runs `setup.sh`.
+**`scripts/`** — Shell scripts for installation and OS integration:
+- `toggle.sh` — Keyboard shortcut handler: if recording is running (PID file exists), sends SIGINT to stop; otherwise opens a new Terminal window and starts `record.py`
+- `setup.sh` — Installs an Automator Quick Action (`~/Library/Services/Wispr Unleashed.workflow/`) so the user can bind Option+Shift+W to toggle recording. Generates both `Info.plist` and `document.wflow`, then flushes the macOS services cache
+- `install.sh` — Interactive installer: checks Python, checks Wispr Flow, installs pip deps, configures Vertex AI in `.env`, checks for GCP credentials, optionally runs `setup.sh`
+- `get.sh` — Remote one-liner installer (`curl | bash`): downloads the repo zip, extracts to `~/wispr-unleashed`, and runs `install.sh`
 
 ## Configuration
 

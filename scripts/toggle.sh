@@ -3,7 +3,7 @@
 # Designed to be triggered by a keyboard shortcut (Option+Shift+W).
 
 PID_FILE="/tmp/wispr-unleashed.pid"
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 # ── If already running, stop it ──────────────────────────────────────────────
 if [ -f "$PID_FILE" ]; then
@@ -19,6 +19,6 @@ fi
 osascript -e "
     tell application \"Terminal\"
         activate
-        do script \"python3 '$SCRIPT_DIR/record.py'\"
+        do script \"python3 '$ROOT_DIR/record.py'\"
     end tell
 " 2>/dev/null

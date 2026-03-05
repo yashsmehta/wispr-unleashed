@@ -4,7 +4,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ENV_FILE="$SCRIPT_DIR/.env"
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+ENV_FILE="$ROOT_DIR/.env"
 
 echo ""
 echo "  ✦ Wispr Unleashed — installer"
@@ -35,7 +36,7 @@ echo "  ✓ Wispr Flow"
 
 echo ""
 echo "  Installing dependencies..."
-pip3 install -q -r "$SCRIPT_DIR/requirements.txt"
+pip3 install -q -r "$ROOT_DIR/requirements.txt"
 echo "  ✓ Dependencies installed"
 
 # ── GCP / Vertex AI ──────────────────────────────────────────────────────────
@@ -75,7 +76,7 @@ shortcut=${shortcut:-Y}
 if [[ "$shortcut" =~ ^[Yy] ]]; then
     bash "$SCRIPT_DIR/setup.sh"
 else
-    echo "  Skipped. Run 'bash setup.sh' later if you change your mind."
+    echo "  Skipped. Run 'bash scripts/setup.sh' later if you change your mind."
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────
@@ -83,7 +84,7 @@ fi
 echo ""
 echo "  ✦ Ready! Start recording with:"
 echo ""
-echo "    python3 $SCRIPT_DIR/record.py \"Meeting Title\""
+echo "    python3 $ROOT_DIR/record.py \"Meeting Title\""
 echo ""
 echo "  Or use Option+Shift+W from anywhere."
 echo ""

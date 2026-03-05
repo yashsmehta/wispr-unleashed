@@ -24,7 +24,7 @@ Two things you need first:
 Then open **Terminal** (press `Cmd+Space`, type "Terminal", hit Enter) and paste this:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yashsmehta/wispr-unleashed/main/get.sh | bash
+curl -fsSL https://raw.githubusercontent.com/yashsmehta/wispr-unleashed/main/scripts/get.sh | bash
 ```
 
 The installer checks everything, installs what's needed, and sets up the keyboard shortcut.
