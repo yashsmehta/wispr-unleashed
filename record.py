@@ -34,7 +34,7 @@ load_dotenv()
 # ── Constants ────────────────────────────────────────────────────────────────
 
 WISPR_DB = Path.home() / "Library" / "Application Support" / "Wispr Flow" / "flow.sqlite"
-OBSIDIAN_VAULT = Path(os.getenv("OBSIDIAN_VAULT", str(Path.home() / "Desktop" / "Obsidian Vault")))
+OBSIDIAN_VAULT = Path(os.getenv("OBSIDIAN_VAULT", str(Path.home() / "Desktop" / "Obsidian Vault"))).expanduser()
 TRANSCRIPTS_DIR = Path(os.getenv("TRANSCRIPTS_DIR", str(OBSIDIAN_VAULT / "Transcripts")))
 PID_FILE = Path("/tmp/wispr-unleashed.pid")
 USER_NAME = os.getenv("USER_NAME", "")
@@ -51,7 +51,8 @@ def slugify(text: str) -> str:
     text = text.lower().strip()
     text = re.sub(r"[^\w\s-]", "", text)
     text = re.sub(r"[\s_]+", "-", text)
-    return re.sub(r"-+", "-", text).strip("-")
+    text = re.sub(r"-+", "-", text).strip("-")
+    return text[:80].rstrip("-")
 
 
 def create_transcript_file(heading: str) -> Path:
@@ -386,6 +387,10 @@ def main():
         write_footer(md_path, stats)
 
         if stats["chunks"] > 0 and interactive:
+            # Flush any Wispr-pasted text that arrived during shutdown
+            flush_stdin()
+            time.sleep(0.5)
+            flush_stdin()
             # Prompt for a real title
             new_title = prompt_title()
             if new_title:
