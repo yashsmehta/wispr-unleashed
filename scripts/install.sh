@@ -1,5 +1,5 @@
 #!/bin/bash
-# One-command installer for Wispr Unleashed.
+# Installer for Wispr Unleashed.
 
 set -e
 
@@ -7,84 +7,167 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="$ROOT_DIR/.env"
 
+# ── ANSI ─────────────────────────────────────────────────────────────────────
+
+DIM='\033[2m'
+BOLD='\033[1m'
+GREEN='\033[32m'
+YELLOW='\033[33m'
+CYAN='\033[36m'
+RESET='\033[0m'
+
+ok()   { echo -e "  ${GREEN}✓${RESET}  $1"; }
+warn() { echo -e "  ${YELLOW}⚠${RESET}  $1"; }
+fail() { echo -e "  ${YELLOW}✗${RESET}  $1"; }
+dim()  { echo -e "  ${DIM}$1${RESET}"; }
+
+# ── Header ───────────────────────────────────────────────────────────────────
+
 echo ""
-echo "  ✦ Wispr Unleashed — installer"
+echo -e "  ${BOLD}✦ wispr unleashed${RESET}"
 echo ""
 
-# ── Check Python ──────────────────────────────────────────────────────────────
+# ── Check Python ─────────────────────────────────────────────────────────────
 
 if ! command -v python3 &>/dev/null; then
-    echo "  ✗ Python 3 not found."
-    echo "    Install it from https://www.python.org/downloads/"
+    fail "python 3 not found"
+    dim "   install from https://www.python.org/downloads/"
     exit 1
 fi
 
 PY_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-echo "  ✓ Python $PY_VERSION"
+ok "python $PY_VERSION"
 
-# ── Check Wispr Flow ──────────────────────────────────────────────────────────
+# ── Check Wispr Flow ─────────────────────────────────────────────────────────
 
 WISPR_DB="$HOME/Library/Application Support/Wispr Flow/flow.sqlite"
 if [ ! -f "$WISPR_DB" ]; then
-    echo "  ✗ Wispr Flow not found."
-    echo "    Install it from https://wispr.com and use it at least once."
+    fail "wispr flow not found"
+    dim "   install from https://wispr.com and do one test recording"
     exit 1
 fi
-echo "  ✓ Wispr Flow"
+ok "wispr flow"
 
-# ── Install Python dependencies ───────────────────────────────────────────────
+# ── Install Python dependencies ──────────────────────────────────────────────
 
 echo ""
-echo "  Installing dependencies..."
+dim "installing dependencies…"
 pip3 install -q -r "$ROOT_DIR/requirements.txt"
-echo "  ✓ Dependencies installed"
+ok "dependencies installed"
 
-# ── GCP / Vertex AI ──────────────────────────────────────────────────────────
+# ── Gemini API ───────────────────────────────────────────────────────────────
 
 echo ""
-if [ -f "$ENV_FILE" ] && grep -q "GOOGLE_GENAI_USE_VERTEXAI=True" "$ENV_FILE" 2>/dev/null; then
-    echo "  ✓ Vertex AI already configured"
-else
-    echo "GOOGLE_GENAI_USE_VERTEXAI=True" > "$ENV_FILE"
-    echo "  ✓ Vertex AI enabled in .env"
-fi
 
-# Check for gcloud + application default credentials
-if ! command -v gcloud &>/dev/null && [ ! -f "$HOME/google-cloud-sdk/bin/gcloud" ]; then
-    echo ""
-    echo "  ⚠ Google Cloud SDK not found."
-    echo "    Install it: https://cloud.google.com/sdk/docs/install"
-    echo "    Then run: gcloud auth application-default login"
+if [ -f "$ENV_FILE" ]; then
+    if grep -q "GOOGLE_API_KEY=" "$ENV_FILE" 2>/dev/null || \
+       grep -q "GEMINI_API_KEY=" "$ENV_FILE" 2>/dev/null; then
+        ok "gemini API key configured"
+    elif grep -q "GOOGLE_GENAI_USE_VERTEXAI=True" "$ENV_FILE" 2>/dev/null; then
+        ok "vertex AI configured"
+    fi
 else
-    GCLOUD_CMD="gcloud"
-    [ -f "$HOME/google-cloud-sdk/bin/gcloud" ] && GCLOUD_CMD="$HOME/google-cloud-sdk/bin/gcloud"
-    if ! "$GCLOUD_CMD" auth application-default print-access-token &>/dev/null; then
-        echo ""
-        echo "  ⚠ GCP credentials not set up."
-        echo "    Run: $GCLOUD_CMD auth application-default login"
+    echo -e "  ${DIM}gemini authentication${RESET}"
+    echo ""
+    echo -e "     ${CYAN}1${RESET}  API key ${DIM}— simple, free tier available${RESET}"
+    echo -e "     ${CYAN}2${RESET}  Vertex AI ${DIM}— Google Cloud SDK credentials${RESET}"
+    echo ""
+    read -rp "  choice [1]: " auth_choice
+    auth_choice=${auth_choice:-1}
+
+    if [[ "$auth_choice" == "2" ]]; then
+        echo "GOOGLE_GENAI_USE_VERTEXAI=True" > "$ENV_FILE"
+        ok "vertex AI enabled"
+
+        if ! command -v gcloud &>/dev/null && [ ! -f "$HOME/google-cloud-sdk/bin/gcloud" ]; then
+            echo ""
+            warn "Google Cloud SDK not found"
+            dim "   install: https://cloud.google.com/sdk/docs/install"
+            dim "   then run: gcloud auth application-default login"
+        else
+            GCLOUD_CMD="gcloud"
+            [ -f "$HOME/google-cloud-sdk/bin/gcloud" ] && GCLOUD_CMD="$HOME/google-cloud-sdk/bin/gcloud"
+            if ! "$GCLOUD_CMD" auth application-default print-access-token &>/dev/null; then
+                echo ""
+                warn "GCP credentials not set up"
+                dim "   run: $GCLOUD_CMD auth application-default login"
+            else
+                ok "GCP credentials"
+            fi
+        fi
     else
-        echo "  ✓ GCP credentials"
+        echo ""
+        dim "get a free key at: https://aistudio.google.com/apikey"
+        echo ""
+        read -rp "  paste your API key: " api_key
+        if [ -n "$api_key" ]; then
+            echo "GOOGLE_API_KEY=$api_key" > "$ENV_FILE"
+            ok "API key saved"
+        else
+            warn "no key entered"
+            dim "   add GOOGLE_API_KEY=your-key to .env later"
+            touch "$ENV_FILE"
+        fi
     fi
 fi
 
-# ── Keyboard shortcut ─────────────────────────────────────────────────────────
+# ── Shell command ────────────────────────────────────────────────────────────
 
-echo ""
-read -rp "  Set up keyboard shortcut (Option+Shift+W)? [Y/n] " shortcut
-shortcut=${shortcut:-Y}
-
-if [[ "$shortcut" =~ ^[Yy] ]]; then
-    bash "$SCRIPT_DIR/setup.sh"
+SHELL_NAME="$(basename "$SHELL")"
+if [ "$SHELL_NAME" = "zsh" ]; then
+    RC_FILE="$HOME/.zshrc"
+elif [ "$SHELL_NAME" = "bash" ]; then
+    RC_FILE="$HOME/.bashrc"
 else
-    echo "  Skipped. Run 'bash scripts/setup.sh' later if you change your mind."
+    RC_FILE=""
 fi
 
-# ── Done ──────────────────────────────────────────────────────────────────────
+WISPR_FUNC='wispr() {
+  python3 '"$ROOT_DIR"'/record.py "$*"
+}'
 
 echo ""
-echo "  ✦ Ready! Start recording with:"
+
+if [ -n "$RC_FILE" ] && grep -q 'wispr()' "$RC_FILE" 2>/dev/null; then
+    ok "wispr command already set up"
+else
+    echo -e "  ${DIM}add${RESET} ${BOLD}wispr${RESET} ${DIM}command to your shell?${RESET}"
+    dim "lets you run: wispr \"Meeting Title\""
+    echo ""
+    read -rp "  add to $RC_FILE? [Y/n]: " add_alias
+    add_alias=${add_alias:-Y}
+
+    if [[ "$add_alias" =~ ^[Yy] ]]; then
+        if [ -n "$RC_FILE" ]; then
+            echo "" >> "$RC_FILE"
+            echo "$WISPR_FUNC" >> "$RC_FILE"
+            ok "wispr command added to ${RC_FILE/$HOME/~}"
+        else
+            warn "couldn't detect shell config"
+            dim "   add this to your shell config manually:"
+            echo ""
+            echo "    $WISPR_FUNC"
+        fi
+    else
+        dim "skipped — you can always run directly:"
+        dim "python3 $ROOT_DIR/record.py \"Meeting Title\""
+    fi
+fi
+
+# ── Done ─────────────────────────────────────────────────────────────────────
+
 echo ""
-echo "    python3 $ROOT_DIR/record.py \"Meeting Title\""
+echo -e "  ${GREEN}●${RESET} ${BOLD}ready${RESET}"
 echo ""
-echo "  Or use Option+Shift+W from anywhere."
+if [ -n "$RC_FILE" ] && grep -q 'wispr()' "$RC_FILE" 2>/dev/null; then
+    dim "start recording:"
+    echo ""
+    echo -e "     ${BOLD}wispr${RESET} ${DIM}\"Meeting Title\"${RESET}"
+    echo ""
+    dim "restart your terminal or run: source ${RC_FILE/$HOME/~}"
+else
+    dim "start recording:"
+    echo ""
+    echo -e "     ${BOLD}python3 $ROOT_DIR/record.py${RESET} ${DIM}\"Meeting Title\"${RESET}"
+fi
 echo ""

@@ -50,6 +50,22 @@ def _build_notes_prompt(category: str | None, vault: Path) -> str:
 @lru_cache(maxsize=1)
 def _get_client():
     from google import genai
+
+    has_api_key = bool(os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"))
+    has_vertex = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "").lower() == "true"
+
+    if not has_api_key and not has_vertex:
+        raise RuntimeError(
+            "No Gemini credentials found. Set one of:\n"
+            "  GOOGLE_API_KEY=your-key      (get one at aistudio.google.com/apikey)\n"
+            "  GOOGLE_GENAI_USE_VERTEXAI=True  (requires gcloud auth)"
+        )
+
+    if has_api_key and not has_vertex:
+        # Use whichever key env var is set
+        key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+        return genai.Client(api_key=key)
+
     return genai.Client()
 
 
