@@ -130,6 +130,183 @@ if [ "$HAS_CONFIG" = false ]; then
     esac
 fi
 
+# ── Obsidian vault ──────────────────────────────────────────────────────────
+
+echo ""
+
+# Check if already configured in .env
+EXISTING_VAULT=""
+if [ -f "$ENV_FILE" ]; then
+    EXISTING_VAULT=$(grep "^OBSIDIAN_VAULT=" "$ENV_FILE" 2>/dev/null | cut -d= -f2)
+fi
+
+if [ -n "$EXISTING_VAULT" ]; then
+    EVAL_VAULT=$(eval echo "$EXISTING_VAULT" 2>/dev/null || echo "$EXISTING_VAULT")
+    if [ -d "$EVAL_VAULT" ]; then
+        ok "obsidian vault → ${EXISTING_VAULT/$HOME/~}"
+    else
+        warn "vault path not found: ${EXISTING_VAULT/$HOME/~}"
+    fi
+else
+    echo -e "  ${BOLD}obsidian vault${RESET}"
+    dim "your notes and transcripts will be saved here"
+    echo ""
+    echo -e "     ${CYAN}1${RESET}  Scan my Mac ${DIM}— auto-detect vault locations${RESET}"
+    echo -e "     ${CYAN}2${RESET}  Enter path  ${DIM}— I know where my vault is${RESET}"
+    echo -e "     ${CYAN}3${RESET}  Skip        ${DIM}— configure later in .env${RESET}"
+    echo ""
+    read -rp "  choice [1]: " vault_method
+    vault_method=${vault_method:-1}
+
+    case "$vault_method" in
+        1)
+            echo ""
+            dim "scanning…"
+
+            DETECTED_VAULTS=()
+
+            # Check common locations first
+            for candidate in \
+                "$HOME/Desktop/Obsidian Vault" \
+                "$HOME/Documents/Obsidian Vault" \
+                "$HOME/Obsidian" \
+                "$HOME/Documents/Obsidian" \
+                "$HOME/Desktop/Obsidian"; do
+                if [ -d "$candidate" ] && [ -d "$candidate/.obsidian" ]; then
+                    DETECTED_VAULTS+=("$candidate")
+                fi
+            done
+
+            # Deep scan Desktop, Documents, and Home
+            for dir in "$HOME/Desktop" "$HOME/Documents" "$HOME"; do
+                if [ -d "$dir" ]; then
+                    while IFS= read -r vault_dir; do
+                        vault_parent="$(dirname "$vault_dir")"
+                        already=false
+                        for v in "${DETECTED_VAULTS[@]}"; do
+                            if [ "$v" = "$vault_parent" ]; then
+                                already=true
+                                break
+                            fi
+                        done
+                        if [ "$already" = false ]; then
+                            DETECTED_VAULTS+=("$vault_parent")
+                        fi
+                    done < <(find "$dir" -maxdepth 3 -name ".obsidian" -type d 2>/dev/null)
+                fi
+            done
+
+            if [ ${#DETECTED_VAULTS[@]} -eq 0 ]; then
+                echo ""
+                warn "no vaults found"
+                dim "   enter the path to your Obsidian vault"
+                echo ""
+                read -rp "  vault path: " manual_path
+                if [ -n "$manual_path" ]; then
+                    EVAL_PATH=$(eval echo "$manual_path" 2>/dev/null || echo "$manual_path")
+                    if [ -d "$EVAL_PATH" ]; then
+                        CHOSEN_VAULT="$EVAL_PATH"
+                    else
+                        echo ""
+                        read -rp "  doesn't exist yet — create it? [Y/n]: " create_vault
+                        create_vault=${create_vault:-Y}
+                        if [[ "$create_vault" =~ ^[Yy] ]]; then
+                            mkdir -p "$EVAL_PATH"
+                            CHOSEN_VAULT="$EVAL_PATH"
+                            ok "created ${manual_path/$HOME/~}"
+                        fi
+                    fi
+                fi
+
+            elif [ ${#DETECTED_VAULTS[@]} -eq 1 ]; then
+                VAULT="${DETECTED_VAULTS[0]}"
+                echo ""
+                echo -e "     ${GREEN}●${RESET}  ${VAULT/$HOME/~}"
+                echo ""
+                read -rp "  use this vault? [Y/n]: " use_detected
+                use_detected=${use_detected:-Y}
+                if [[ "$use_detected" =~ ^[Yy] ]]; then
+                    CHOSEN_VAULT="$VAULT"
+                fi
+
+            else
+                echo ""
+                dim "found ${#DETECTED_VAULTS[@]} vaults:"
+                echo ""
+                i=1
+                for v in "${DETECTED_VAULTS[@]}"; do
+                    echo -e "     ${CYAN}$i${RESET}  ${v/$HOME/~}"
+                    i=$((i + 1))
+                done
+                echo ""
+                read -rp "  choice [1]: " vault_choice
+                vault_choice=${vault_choice:-1}
+                if [ "$vault_choice" -ge 1 ] && [ "$vault_choice" -le "${#DETECTED_VAULTS[@]}" ] 2>/dev/null; then
+                    CHOSEN_VAULT="${DETECTED_VAULTS[$((vault_choice - 1))]}"
+                fi
+            fi
+            ;;
+
+        2)
+            echo ""
+            dim "enter the full path (tab completion works)"
+            dim "example: ~/Documents/My Notes"
+            echo ""
+            read -rep "  vault path: " manual_path
+            if [ -n "$manual_path" ]; then
+                EVAL_PATH=$(eval echo "$manual_path" 2>/dev/null || echo "$manual_path")
+                if [ -d "$EVAL_PATH" ]; then
+                    CHOSEN_VAULT="$EVAL_PATH"
+                else
+                    echo ""
+                    read -rp "  doesn't exist yet — create it? [Y/n]: " create_vault
+                    create_vault=${create_vault:-Y}
+                    if [[ "$create_vault" =~ ^[Yy] ]]; then
+                        mkdir -p "$EVAL_PATH"
+                        CHOSEN_VAULT="$EVAL_PATH"
+                        ok "created ${manual_path/$HOME/~}"
+                    fi
+                fi
+            fi
+            ;;
+
+        *)
+            dim "skipped — set OBSIDIAN_VAULT in .env when ready"
+            ;;
+    esac
+
+    # Ask for name (used in note generation for context)
+    if [ -n "${CHOSEN_VAULT:-}" ]; then
+        echo ""
+        read -rp "  your first name: " user_name
+    fi
+
+    # Write vault config and create Transcripts dir
+    if [ -n "${CHOSEN_VAULT:-}" ]; then
+        VAULT_SHORT="${CHOSEN_VAULT/$HOME/~}"
+
+        if [ -f "$ENV_FILE" ]; then
+            echo "OBSIDIAN_VAULT=$VAULT_SHORT" >> "$ENV_FILE"
+        else
+            echo "OBSIDIAN_VAULT=$VAULT_SHORT" > "$ENV_FILE"
+        fi
+
+        if [ -n "${user_name:-}" ]; then
+            echo "USER_NAME=$user_name" >> "$ENV_FILE"
+        fi
+
+        # Create Transcripts folder
+        TRANSCRIPTS_DIR="$CHOSEN_VAULT/Transcripts"
+        if [ ! -d "$TRANSCRIPTS_DIR" ]; then
+            mkdir -p "$TRANSCRIPTS_DIR"
+        fi
+
+        echo ""
+        ok "vault → ${VAULT_SHORT}"
+        dim "transcripts → ${VAULT_SHORT}/Transcripts"
+    fi
+fi
+
 # ── Shell command ────────────────────────────────────────────────────────────
 
 SHELL_NAME="$(basename "$SHELL")"
