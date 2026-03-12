@@ -313,6 +313,7 @@ def main():
 
         redraw(active=False)
         since_utc = get_utc_now()
+        needs_stop = False
 
         while not shutdown_requested:
             if time.monotonic() - session_start >= MAX_DURATION:
@@ -327,6 +328,7 @@ def main():
 
             rec_start = time.monotonic()
             recording_active = True
+            needs_stop = True
 
             while not shutdown_requested:
                 interval = POLL_FAST if not recording_active else POLL_INTERVAL
@@ -353,11 +355,45 @@ def main():
                 if recording_active and rec_elapsed >= RECORD_DURATION:
                     stop_recording()
                     recording_active = False
+                    needs_stop = False
 
                 if not recording_active and rec_elapsed >= RECORD_DURATION + PROCESS_TIMEOUT:
+                    sys.stdout.write("\n")
+                    put(f"{YELLOW}⚠{RESET}  {DIM}transcript not received{RESET}")
+                    put(f"   {DIM}open Wispr Flow to retry — waiting for transcript…{RESET}")
+                    put(f"   {DIM}any key to skip this chunk and keep recording{RESET}")
+
+                    # Keep polling — transcript may arrive after manual retry
+                    while not shutdown_requested:
+                        if interactive:
+                            readable, _, _ = select.select([sys.stdin], [], [], POLL_FAST)
+                            if readable:
+                                flush_stdin()
+                                # Check DB before assuming skip
+                                result = poll_for_transcription(since_utc, known_ids)
+                                if result:
+                                    accept_chunk(result, md_path, known_ids, stats)
+                                    put(f"{GREEN}✓{RESET}  {DIM}transcript recovered{RESET}")
+                                    redraw(active=False)
+                                else:
+                                    put(f"   {DIM}skipped{RESET}")
+                                chunk_in_flight = False
+                                break
+                        else:
+                            time.sleep(POLL_FAST)
+
+                        result = poll_for_transcription(since_utc, known_ids)
+                        if result:
+                            accept_chunk(result, md_path, known_ids, stats)
+                            flush_stdin()
+                            put(f"{GREEN}✓{RESET}  {DIM}transcript recovered{RESET}")
+                            redraw(active=False)
+                            chunk_in_flight = False
+                            break
                     break
 
-        stop_recording()
+        if needs_stop:
+            stop_recording()
 
         if chunk_in_flight and not force_exit:
             drain_start = time.monotonic()
