@@ -16,7 +16,7 @@ litellm.suppress_debug_info = True
 
 # Support legacy GOOGLE_GENAI_USE_VERTEXAI=True by mapping to vertex_ai/ prefix
 _USE_VERTEX = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "").lower() == "true"
-_DEFAULT_MODEL = "vertex_ai/gemini-2.0-flash" if _USE_VERTEX else "gemini/gemini-2.0-flash"
+_DEFAULT_MODEL = "vertex_ai/gemini-2.5-flash" if _USE_VERTEX else "gemini/gemini-2.5-flash"
 LLM_MODEL = os.getenv("LLM_MODEL", _DEFAULT_MODEL)
 
 # Map GOOGLE_CLOUD_PROJECT → VERTEXAI_PROJECT for litellm

@@ -90,7 +90,7 @@ if [ "$HAS_CONFIG" = false ]; then
             read -rp "  paste your API key: " api_key
             if [ -n "$api_key" ]; then
                 echo "GOOGLE_API_KEY=$api_key" > "$ENV_FILE"
-                echo "LLM_MODEL=gemini/gemini-2.0-flash" >> "$ENV_FILE"
+                echo "LLM_MODEL=gemini/gemini-2.5-flash" >> "$ENV_FILE"
                 ok "gemini configured"
             else
                 warn "no key entered — add GOOGLE_API_KEY to .env later"
