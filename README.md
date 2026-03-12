@@ -3,59 +3,34 @@
 </p>
 
 <p align="center">
-  <em>Bypass Wispr Flow's 6-minute recording limit. Record for hours. Get structured notes automatically.</em>
-</p>
-
-<p align="center">
-  <a href="https://wispr.com">Wispr Flow</a> is the best voice-to-text on macOS — but it caps at 6 minutes.<br>
-  This tool removes that limit. It silently cycles recordings in 5-minute chunks,<br>
-  stitches the transcriptions, and generates structured notes with Gemini.
+  <em>Record meetings, lectures, brainstorms — get structured notes in Obsidian automatically.</em>
 </p>
 
 ---
 
+[Wispr Flow](https://wispr.com) is the best voice-to-text on macOS, but it caps recordings at 6 minutes. This tool removes that limit — it silently cycles recordings in the background, stitches the transcriptions, and sends the full transcript to an LLM to generate structured notes that are saved directly to your Obsidian vault.
+
+**Record anything → get organized notes in Obsidian.** Project meetings with action items, paper discussions, lecture notes — all filed into the right folder automatically.
+
 ## Install
 
-You need **[Wispr Flow](https://wispr.com)** installed (do one test recording so it's set up).
-
-Then open **Terminal** (press `Cmd+Space`, type "Terminal", hit Enter) and paste:
+You need [Wispr Flow](https://wispr.com) installed (do one test recording first).
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yashsmehta/wispr-unleashed/main/scripts/get.sh | bash
 ```
 
-The installer walks you through everything — dependencies, API credentials, and keyboard shortcut.
-
-### Gemini setup
-
-The installer will ask how you want to authenticate. Pick one:
-
-**Option A — API key** (recommended, simplest):
-
-1. Get a free key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
-2. The installer will prompt you to paste it, or add it to `~/wispr-unleashed/.env` manually:
-   ```
-   GOOGLE_API_KEY=your-key-here
-   ```
-
-**Option B — Vertex AI** (Google Cloud SDK):
-
-1. Install the [Google Cloud SDK](https://cloud.google.com/sdk/docs/install)
-2. Run `gcloud auth application-default login`
-3. Set in `.env`:
-   ```
-   GOOGLE_GENAI_USE_VERTEXAI=True
-   ```
+The installer handles dependencies, LLM setup, and adds a `wispr` command to your shell.
 
 ## Usage
-
-The installer adds a `wispr` command to your shell. Just run:
 
 ```bash
 wispr "Meeting Title"
 ```
 
-Press `Ctrl+C` to stop. You'll be prompted to pick a folder, then notes are generated automatically.
+Press `Ctrl+C` to stop. Pick a folder in your vault, and notes appear in Obsidian.
+
+Notes adapt to context — project folders get meeting notes with action items, while **Talks** or **Lectures** folders get structured academic notes.
 
 ## How It Works
 
@@ -63,37 +38,38 @@ Press `Ctrl+C` to stop. You'll be prompted to pick a folder, then notes are gene
   <img src="assets/diagram.png" alt="Recording pipeline" width="100%">
 </p>
 
-1. Opens Wispr Flow hands-free recording
-2. Every 5 minutes, silently cycles to a new chunk (staying under the 6-min limit)
-3. Stitches transcriptions into a single markdown file
-4. On stop, sends the full transcript to Gemini and saves structured notes to your Obsidian vault
+1. Starts Wispr Flow hands-free recording
+2. Silently cycles every 5 minutes (staying under the 6-min limit)
+3. Stitches all transcriptions into a single markdown file
+4. Sends the transcript to your LLM and saves structured notes to Obsidian
 
-Notes adapt to what you're recording — save to a project folder and you get detailed action items alongside your notes; save to **Talks** or **Lectures** and you get structured academic notes without action items.
+The raw transcript is always saved separately — you never lose the original.
 
 ## Configuration
 
-Edit `~/wispr-unleashed/.env` to customize:
+Edit `~/wispr-unleashed/.env`:
 
 | Setting | Default | What it does |
 |:---|:---|:---|
-| `GOOGLE_API_KEY` | — | Gemini API key ([get one here](https://aistudio.google.com/apikey)) |
-| `GOOGLE_GENAI_USE_VERTEXAI` | `False` | Use Vertex AI instead of API key |
-| `GEMINI_MODEL` | `gemini-3.1-flash-lite-preview` | Gemini model for note generation |
-| `OBSIDIAN_VAULT` | `~/Desktop/Obsidian Vault` | Where notes are saved |
-| `TRANSCRIPTS_DIR` | `$OBSIDIAN_VAULT/Transcripts` | Where raw transcripts go |
-| `USER_NAME` | — | Your name (used for context in note generation) |
+| `LLM_MODEL` | `gemini/gemini-2.0-flash` | Model for note generation ([supported models](https://docs.litellm.ai/docs/providers)) |
+| `OPENAI_API_KEY` | — | For OpenAI models (`gpt-4o-mini`, `gpt-4o`, etc.) |
+| `ANTHROPIC_API_KEY` | — | For Anthropic models (`anthropic/claude-sonnet-4-20250514`, etc.) |
+| `GOOGLE_API_KEY` | — | For Gemini models (`gemini/gemini-2.0-flash`, etc.) |
+| `OBSIDIAN_VAULT` | `~/Desktop/Obsidian Vault` | Path to your Obsidian vault |
+| `TRANSCRIPTS_DIR` | `$OBSIDIAN_VAULT/Transcripts` | Where raw transcripts are saved |
+| `USER_NAME` | — | Your name (used for context in notes) |
 
 ### Customizing prompts
 
-The prompt templates that control how notes are generated live in `~/wispr-unleashed/prompts/`:
+The prompts that shape your notes live in `~/wispr-unleashed/prompts/`:
 
 | File | Used for |
 |:---|:---|
 | `meeting_notes.md` | Structured meeting notes |
 | `action_items.md` | Action item extraction |
-| `talk_notes.md` | Talk, lecture, and seminar notes |
+| `talk_notes.md` | Talk / lecture / seminar notes |
 
-Edit these to change the style, structure, or detail level of your notes. Since you always get the full transcript saved to `TRANSCRIPTS_DIR`, you can re-run note generation or tweak prompts and try again — the raw transcript is never lost.
+Edit these to change the style or structure of your notes. The raw transcript is always preserved in `TRANSCRIPTS_DIR`, so you can tweak prompts and regenerate anytime.
 
 ## License
 

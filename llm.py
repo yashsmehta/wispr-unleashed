@@ -1,4 +1,8 @@
-"""Gemini LLM calls for transcript → notes generation."""
+"""LLM calls for transcript → notes generation.
+
+Uses litellm to support any provider (OpenAI, Anthropic, Google, etc.).
+Set LLM_MODEL and the corresponding API key in .env.
+"""
 
 import os
 import re
@@ -6,7 +10,20 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from pathlib import Path
 
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite-preview")
+import litellm
+
+litellm.suppress_debug_info = True
+
+# Support legacy GOOGLE_GENAI_USE_VERTEXAI=True by mapping to vertex_ai/ prefix
+_USE_VERTEX = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "").lower() == "true"
+_DEFAULT_MODEL = "vertex_ai/gemini-2.0-flash" if _USE_VERTEX else "gemini/gemini-2.0-flash"
+LLM_MODEL = os.getenv("LLM_MODEL", _DEFAULT_MODEL)
+
+# Map GOOGLE_CLOUD_PROJECT → VERTEXAI_PROJECT for litellm
+if _USE_VERTEX and not os.getenv("VERTEXAI_PROJECT"):
+    gcp_project = os.getenv("GOOGLE_CLOUD_PROJECT")
+    if gcp_project:
+        os.environ["VERTEXAI_PROJECT"] = gcp_project
 
 _OBSIDIAN_REF = Path(__file__).parent / "obsidian-reference.md"
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
@@ -47,44 +64,21 @@ def _build_notes_prompt(category: str | None, vault: Path) -> str:
     return base
 
 
-@lru_cache(maxsize=1)
-def _get_client():
-    from google import genai
-
-    has_api_key = bool(os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"))
-    has_vertex = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "").lower() == "true"
-
-    if not has_api_key and not has_vertex:
-        raise RuntimeError(
-            "No Gemini credentials found. Set one of:\n"
-            "  GOOGLE_API_KEY=your-key      (get one at aistudio.google.com/apikey)\n"
-            "  GOOGLE_GENAI_USE_VERTEXAI=True  (requires gcloud auth)"
-        )
-
-    if has_api_key and not has_vertex:
-        # Use whichever key env var is set
-        key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-        return genai.Client(api_key=key)
-
-    return genai.Client()
-
-
-def _call_gemini(client, prompt: str, transcript: str,
-                 temperature: float = 0.3) -> str | None:
-    """Make a single Gemini call and return cleaned text, or None."""
-    from google.genai import types
-
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=prompt + "\n\nTRANSCRIPT:\n" + transcript,
-        config=types.GenerateContentConfig(
-            temperature=temperature,
-            thinking_config=types.ThinkingConfig(thinking_level="high"),
-        ),
+def _call_llm(system_prompt: str, transcript: str,
+              temperature: float = 0.3) -> str | None:
+    """Make a single LLM call and return cleaned text, or None."""
+    response = litellm.completion(
+        model=LLM_MODEL,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": transcript},
+        ],
+        temperature=temperature,
     )
-    if not response.text or not response.text.strip():
+    text = response.choices[0].message.content
+    if not text or not text.strip():
         return None
-    return re.sub(r"\n{3,}", "\n\n", response.text.strip())
+    return re.sub(r"\n{3,}", "\n\n", text.strip())
 
 # ── Public API ───────────────────────────────────────────────────────────────
 
@@ -94,24 +88,20 @@ def generate_notes(transcript: str, category: str | None,
 
     Returns combined markdown string, or None on failure.
     """
-    client = _get_client()
     is_talk = category and category in _TALK_CATEGORIES
 
-    # Build notes prompt
     vault = vault or Path(os.getenv("OBSIDIAN_VAULT",
                                     str(Path.home() / "Desktop" / "Obsidian Vault")))
     prompt = _build_notes_prompt(category, vault)
     prompt += f"\nThis is meeting #{meeting_num} in this series. Start the title as `# {meeting_num}: <title>`.\n"
 
     if is_talk:
-        # Talks: single call, no action items
-        notes = _call_gemini(client, prompt, transcript, temperature=0.3)
-        return notes
+        return _call_llm(prompt, transcript, temperature=0.3)
 
     # Meetings: run notes + action items in parallel
     with ThreadPoolExecutor(max_workers=2) as pool:
-        notes_future = pool.submit(_call_gemini, client, prompt, transcript, 0.3)
-        actions_future = pool.submit(_call_gemini, client, _read_prompt("action_items"),
+        notes_future = pool.submit(_call_llm, prompt, transcript, 0.3)
+        actions_future = pool.submit(_call_llm, _read_prompt("action_items"),
                                      transcript, 0.2)
         notes = notes_future.result()
         action_items = actions_future.result()

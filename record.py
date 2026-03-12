@@ -191,7 +191,7 @@ def _next_meeting_number(folder: Path) -> int:
 
 def generate_notes(transcript_path: Path, dest_dir: Path, heading: str,
                    category: str | None = None):
-    """Generate notes from transcript using Gemini and save to dest_dir."""
+    """Generate notes from transcript and save to dest_dir."""
     import llm
 
     transcript = transcript_path.read_text()
@@ -205,11 +205,12 @@ def generate_notes(transcript_path: Path, dest_dir: Path, heading: str,
     try:
         result = llm.generate_notes(transcript, category, meeting_num, vault=OBSIDIAN_VAULT)
     except Exception as exc:
-        put(f"{DIM}notes failed — {type(exc).__name__}{RESET}")
+        put(f"{YELLOW}⚠{RESET}  {DIM}notes failed — {exc}{RESET}")
+        put(f"   {DIM}transcript saved, configure LLM_MODEL in .env to generate notes{RESET}")
         return
 
     if result is None:
-        put(f"{DIM}notes failed — no API key or empty response{RESET}")
+        put(f"{YELLOW}⚠{RESET}  {DIM}notes failed — empty response{RESET}")
         return
 
     # Extract title from generated heading to build filename
@@ -442,7 +443,6 @@ def main():
 
             dest_dir = folder_picker.get_destination()
             if dest_dir:
-                put(f"{DIM}generating notes...{RESET}")
                 generate_notes(md_path, dest_dir, heading,
                                category=folder_picker.category)
 

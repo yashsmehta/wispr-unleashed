@@ -55,60 +55,79 @@ dim "installing dependencies…"
 pip3 install -q -r "$ROOT_DIR/requirements.txt"
 ok "dependencies installed"
 
-# ── Gemini API ───────────────────────────────────────────────────────────────
+# ── LLM for note generation ─────────────────────────────────────────────────
 
 echo ""
 
+# Check if already configured
+HAS_CONFIG=false
 if [ -f "$ENV_FILE" ]; then
-    if grep -q "GOOGLE_API_KEY=" "$ENV_FILE" 2>/dev/null || \
-       grep -q "GEMINI_API_KEY=" "$ENV_FILE" 2>/dev/null; then
-        ok "gemini API key configured"
+    if grep -qE "(OPENAI_API_KEY|ANTHROPIC_API_KEY|GOOGLE_API_KEY|GEMINI_API_KEY)=" "$ENV_FILE" 2>/dev/null; then
+        MODEL=$(grep "^LLM_MODEL=" "$ENV_FILE" 2>/dev/null | cut -d= -f2)
+        ok "LLM configured${MODEL:+ ($MODEL)}"
+        HAS_CONFIG=true
     elif grep -q "GOOGLE_GENAI_USE_VERTEXAI=True" "$ENV_FILE" 2>/dev/null; then
         ok "vertex AI configured"
+        HAS_CONFIG=true
     fi
-else
-    echo -e "  ${DIM}gemini authentication${RESET}"
-    echo ""
-    echo -e "     ${CYAN}1${RESET}  API key ${DIM}— simple, free tier available${RESET}"
-    echo -e "     ${CYAN}2${RESET}  Vertex AI ${DIM}— Google Cloud SDK credentials${RESET}"
-    echo ""
-    read -rp "  choice [1]: " auth_choice
-    auth_choice=${auth_choice:-1}
+fi
 
-    if [[ "$auth_choice" == "2" ]]; then
-        echo "GOOGLE_GENAI_USE_VERTEXAI=True" > "$ENV_FILE"
-        ok "vertex AI enabled"
+if [ "$HAS_CONFIG" = false ]; then
+    echo -e "  ${DIM}note generation — pick your LLM provider${RESET}"
+    echo ""
+    echo -e "     ${CYAN}1${RESET}  Google Gemini ${DIM}— free tier available${RESET}"
+    echo -e "     ${CYAN}2${RESET}  OpenAI"
+    echo -e "     ${CYAN}3${RESET}  Anthropic"
+    echo -e "     ${CYAN}4${RESET}  Skip ${DIM}— configure later in .env${RESET}"
+    echo ""
+    read -rp "  choice [1]: " provider
+    provider=${provider:-1}
 
-        if ! command -v gcloud &>/dev/null && [ ! -f "$HOME/google-cloud-sdk/bin/gcloud" ]; then
+    case "$provider" in
+        1)
+            dim "get a free key at: https://aistudio.google.com/apikey"
             echo ""
-            warn "Google Cloud SDK not found"
-            dim "   install: https://cloud.google.com/sdk/docs/install"
-            dim "   then run: gcloud auth application-default login"
-        else
-            GCLOUD_CMD="gcloud"
-            [ -f "$HOME/google-cloud-sdk/bin/gcloud" ] && GCLOUD_CMD="$HOME/google-cloud-sdk/bin/gcloud"
-            if ! "$GCLOUD_CMD" auth application-default print-access-token &>/dev/null; then
-                echo ""
-                warn "GCP credentials not set up"
-                dim "   run: $GCLOUD_CMD auth application-default login"
+            read -rp "  paste your API key: " api_key
+            if [ -n "$api_key" ]; then
+                echo "GOOGLE_API_KEY=$api_key" > "$ENV_FILE"
+                echo "LLM_MODEL=gemini/gemini-2.0-flash" >> "$ENV_FILE"
+                ok "gemini configured"
             else
-                ok "GCP credentials"
+                warn "no key entered — add GOOGLE_API_KEY to .env later"
+                touch "$ENV_FILE"
             fi
-        fi
-    else
-        echo ""
-        dim "get a free key at: https://aistudio.google.com/apikey"
-        echo ""
-        read -rp "  paste your API key: " api_key
-        if [ -n "$api_key" ]; then
-            echo "GOOGLE_API_KEY=$api_key" > "$ENV_FILE"
-            ok "API key saved"
-        else
-            warn "no key entered"
-            dim "   add GOOGLE_API_KEY=your-key to .env later"
+            ;;
+        2)
+            dim "get a key at: https://platform.openai.com/api-keys"
+            echo ""
+            read -rp "  paste your API key: " api_key
+            if [ -n "$api_key" ]; then
+                echo "OPENAI_API_KEY=$api_key" > "$ENV_FILE"
+                echo "LLM_MODEL=gpt-4o-mini" >> "$ENV_FILE"
+                ok "openai configured"
+            else
+                warn "no key entered — add OPENAI_API_KEY to .env later"
+                touch "$ENV_FILE"
+            fi
+            ;;
+        3)
+            dim "get a key at: https://console.anthropic.com/settings/keys"
+            echo ""
+            read -rp "  paste your API key: " api_key
+            if [ -n "$api_key" ]; then
+                echo "ANTHROPIC_API_KEY=$api_key" > "$ENV_FILE"
+                echo "LLM_MODEL=anthropic/claude-sonnet-4-20250514" >> "$ENV_FILE"
+                ok "anthropic configured"
+            else
+                warn "no key entered — add ANTHROPIC_API_KEY to .env later"
+                touch "$ENV_FILE"
+            fi
+            ;;
+        *)
+            dim "skipped — edit .env when ready (see README for options)"
             touch "$ENV_FILE"
-        fi
-    fi
+            ;;
+    esac
 fi
 
 # ── Shell command ────────────────────────────────────────────────────────────
@@ -134,7 +153,7 @@ else
     echo -e "  ${DIM}add${RESET} ${BOLD}wispr${RESET} ${DIM}command to your shell?${RESET}"
     dim "lets you run: wispr \"Meeting Title\""
     echo ""
-    read -rp "  add to $RC_FILE? [Y/n]: " add_alias
+    read -rp "  add to ${RC_FILE/$HOME/~}? [Y/n]: " add_alias
     add_alias=${add_alias:-Y}
 
     if [[ "$add_alias" =~ ^[Yy] ]]; then

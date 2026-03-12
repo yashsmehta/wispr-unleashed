@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Wispr Unleashed is a macOS tool that records meeting audio using [Wispr Flow](https://wispr.com) and produces transcribed markdown files. It works around Wispr Flow's 6-minute recording limit by cycling recording chunks automatically (~4m55s each), polling Wispr's SQLite database for completed transcriptions, and stitching them into a single markdown file. After recording ends, it calls the Gemini API to generate structured meeting notes (two separate LLM calls: one for notes, one for action items).
+Wispr Unleashed is a macOS tool that records meeting audio using [Wispr Flow](https://wispr.com) and produces transcribed markdown files saved directly to Obsidian. It works around Wispr Flow's 6-minute recording limit by cycling recording chunks automatically (~4m55s each), polling Wispr's SQLite database for completed transcriptions, and stitching them into a single markdown file. After recording ends, it sends the transcript to an LLM (any provider via litellm) to generate structured meeting notes (two separate LLM calls: one for notes, one for action items).
 
 ## Key Commands
 
@@ -42,15 +42,13 @@ bash scripts/install.sh
 - `discover_categories(vault_path)` / `discover_subfolders(vault_path, category)` — Obsidian vault folder discovery
 - All vault-path-dependent functions take `vault_path` as a parameter (no config imports)
 
-**`llm.py`** — Gemini LLM calls for note generation:
+**`llm.py`** — LLM calls for note generation (provider-agnostic via litellm):
 - Two parallel API calls per meeting: one for structured notes, one for action items (via `ThreadPoolExecutor`)
 - Talks/lectures get a single notes call (no action items)
 - Category-aware prompts: meetings get a "meeting notes" prompt; talks/lectures/seminars get a "talk notes" prompt
 - Action items are unattributed project tasks (no person assignment) — specific and detailed
 - Prompts include user's `Glossary.md` (known terms) — new technical terms are flagged in a `> [!study] New Terms` callout
-- Both calls use `thinking_level="high"` for better reasoning
-- Supports two auth modes: `GOOGLE_API_KEY` for direct API key, or `GOOGLE_GENAI_USE_VERTEXAI=True` for Vertex AI
-- Gemini client and obsidian-reference file are cached (`@lru_cache`)
+- Uses `litellm.completion()` — supports any provider (OpenAI, Anthropic, Google, etc.) via `LLM_MODEL` env var
 
 **`prompts/`** — LLM prompt templates (markdown files):
 - `meeting_notes.md` — structured meeting notes prompt
@@ -61,7 +59,7 @@ bash scripts/install.sh
 **`scripts/`** — Shell scripts for installation and OS integration:
 - `toggle.sh` — Keyboard shortcut handler: if recording is running (PID file exists), sends SIGINT to stop; otherwise opens a new Terminal window and starts `record.py`
 - `setup.sh` — Installs an Automator Quick Action (`~/Library/Services/Wispr Unleashed.workflow/`) so the user can bind Option+Shift+W to toggle recording. Generates both `Info.plist` and `document.wflow`, then flushes the macOS services cache
-- `install.sh` — Interactive installer: checks Python, checks Wispr Flow, installs pip deps, configures Vertex AI in `.env`, checks for GCP credentials, optionally runs `setup.sh`
+- `install.sh` — Interactive installer: checks Python, checks Wispr Flow, installs pip deps, configures LLM provider in `.env`, optionally adds `wispr` shell command
 - `get.sh` — Remote one-liner installer (`curl | bash`): downloads the repo zip, extracts to `~/wispr-unleashed`, and runs `install.sh`
 
 ## Configuration
@@ -70,17 +68,19 @@ All configuration is via environment variables (`.env` file loaded automatically
 
 | Variable | Default | Description |
 |---|---|---|
-| `GOOGLE_API_KEY` | *(empty)* | Gemini API key (simplest auth option) |
-| `GOOGLE_GENAI_USE_VERTEXAI` | `False` | Set `True` to use Vertex AI with GCP credentials instead of API key |
+| `LLM_MODEL` | `gemini/gemini-2.0-flash` | Model for note generation (any litellm-supported model) |
+| `OPENAI_API_KEY` | *(empty)* | For OpenAI models |
+| `ANTHROPIC_API_KEY` | *(empty)* | For Anthropic models |
+| `GOOGLE_API_KEY` | *(empty)* | For Gemini models |
+| `GOOGLE_GENAI_USE_VERTEXAI` | `False` | Set `True` to use Vertex AI with GCP credentials |
 | `USER_NAME` | *(empty)* | Your name — used in note generation context |
 | `OBSIDIAN_VAULT` | `~/Desktop/Obsidian Vault` | Path to Obsidian vault (for note output and folder picker) |
 | `TRANSCRIPTS_DIR` | `$OBSIDIAN_VAULT/Transcripts` | Where raw transcript files are saved |
-| `GEMINI_MODEL` | `gemini-3.1-flash-lite-preview` | Gemini model to use for note generation |
 
 ## Important Details
 
 - Wispr Flow must be installed and used at least once (so the SQLite DB exists)
-- Note generation requires either `GOOGLE_API_KEY` (Gemini API key) or `GOOGLE_GENAI_USE_VERTEXAI=True` (Vertex AI with GCP credentials) in `.env`
+- Note generation requires an LLM API key in `.env` — any provider supported by litellm (OpenAI, Anthropic, Google, etc.)
 - Transcriptions are matched by `transcriptEntityId` to avoid duplicates; the `known_ids` set tracks already-processed chunks
 - Signal handling: first Ctrl+C triggers graceful shutdown with drain; second forces exit
 - Arrow key input in the folder picker (`ui.py`) uses `os.read(fd, 1)` directly (not `sys.stdin.read`) to avoid Python's `BufferedReader` consuming escape sequence bytes before `select.select` can detect them
