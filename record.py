@@ -24,6 +24,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+import keyboard_suppress
 from ui import (
     put, draw_dots, flush_stdin, FolderPicker, SelectMenu,
     DIM, BOLD, GREEN, YELLOW, CYAN, RESET, HIDE_CURSOR, SHOW_CURSOR,
@@ -85,17 +86,35 @@ def set_window_title(title: str = WINDOW_TITLE):
     sys.stdout.flush()
 
 
-def focus_terminal():
-    """Bring the recording terminal window to foreground so Wispr's paste lands here."""
+_use_event_tap = keyboard_suppress.available()
+_prev_app_bundle = None
+
+
+def _get_frontmost_app() -> str | None:
+    """Get the bundle ID of the currently frontmost application."""
+    result = subprocess.run(
+        ["osascript", "-e",
+         'tell application "System Events" to get bundle identifier '
+         'of first application process whose frontmost is true'],
+        capture_output=True, text=True, check=False,
+    )
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def _focus_terminal():
+    """Bring the recording terminal window to foreground (fallback paste sink)."""
     term = os.environ.get("TERM_PROGRAM", "")
     app_map = {
         "Apple_Terminal": "Terminal",
         "iTerm.app": "iTerm2",
         "ghostty": "Ghostty",
         "WezTerm": "WezTerm",
+        "Alacritty": "Alacritty",
+        "kitty": "kitty",
+        "rio": "Rio",
+        "vscode": "Code",
     }
-    app_name = app_map.get(term, "Terminal")
-    # Focus the specific window by title, not just the app
+    app_name = app_map.get(term, term or "Terminal")
     script = f'''
         tell application "{app_name}"
             activate
@@ -107,13 +126,44 @@ def focus_terminal():
     subprocess.run(["osascript", "-e", script], check=False, capture_output=True)
 
 
+def _restore_previous_app():
+    """Give focus back to whatever app the user was in before we stole it."""
+    global _prev_app_bundle
+    if _prev_app_bundle:
+        subprocess.run(
+            ["osascript", "-e",
+             f'tell application id "{_prev_app_bundle}" to activate'],
+            capture_output=True, check=False,
+        )
+        _prev_app_bundle = None
+
+
 def start_recording():
     subprocess.run(["open", "wispr-flow://start-hands-free"], check=False)
 
 
 def stop_recording():
-    focus_terminal()
+    """Stop Wispr recording, suppressing the paste via event tap or focus fallback."""
+    global _prev_app_bundle
+
+    if _use_event_tap:
+        keyboard_suppress.start()
+    else:
+        _prev_app_bundle = _get_frontmost_app()
+        _focus_terminal()
+        time.sleep(0.3)
+
     subprocess.run(["open", "wispr-flow://stop-hands-free"], check=False)
+
+
+def settle_after_paste():
+    """Wait for Wispr paste to finish, flush stdin, and clean up suppression."""
+    time.sleep(0.5)
+    flush_stdin()
+    if _use_event_tap:
+        keyboard_suppress.stop()
+    else:
+        _restore_previous_app()
 
 
 def get_utc_now() -> str:
@@ -255,7 +305,6 @@ def rename_transcript(md_path: Path, new_heading: str) -> Path:
         return md_path
 
     counter = 2
-    base_path = new_path
     while new_path.exists():
         new_path = md_path.parent / f"{date_str}-{slug}-{counter}.md"
         counter += 1
@@ -302,6 +351,11 @@ def main():
     set_window_title()
     print(f"\n  {BOLD}wispr{RESET} {DIM}·{RESET} {heading}\n")
 
+    if not _use_event_tap:
+        put(f"{DIM}tip: grant Accessibility permission to your terminal to prevent{RESET}")
+        put(f"{DIM}     Wispr from pasting into other apps (System Settings → Privacy){RESET}")
+        print()
+
     fd = sys.stdin.fileno() if interactive else -1
     old_term = termios.tcgetattr(fd) if interactive else None
 
@@ -345,7 +399,7 @@ def main():
                 if result:
                     chunk_in_flight = False
                     accept_chunk(result, md_path, known_ids, stats)
-                    flush_stdin()
+                    settle_after_paste()
                     redraw(active=False)
                     if recording_active:
                         shutdown_requested = True
@@ -375,9 +429,11 @@ def main():
                                 if result:
                                     accept_chunk(result, md_path, known_ids, stats)
                                     put(f"{GREEN}✓{RESET}  {DIM}transcript recovered{RESET}")
+                                    settle_after_paste()
                                     redraw(active=False)
                                 else:
                                     put(f"   {DIM}skipped{RESET}")
+                                    settle_after_paste()
                                 chunk_in_flight = False
                                 break
                         else:
@@ -386,8 +442,8 @@ def main():
                         result = poll_for_transcription(since_utc, known_ids)
                         if result:
                             accept_chunk(result, md_path, known_ids, stats)
-                            flush_stdin()
                             put(f"{GREEN}✓{RESET}  {DIM}transcript recovered{RESET}")
+                            settle_after_paste()
                             redraw(active=False)
                             chunk_in_flight = False
                             break
@@ -404,7 +460,7 @@ def main():
                 result = poll_for_transcription(since_utc, known_ids)
                 if result:
                     accept_chunk(result, md_path, known_ids, stats)
-                    flush_stdin()
+                    settle_after_paste()
                     redraw(active=False)
                     break
                 if interactive:

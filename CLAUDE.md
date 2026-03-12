@@ -25,7 +25,8 @@ bash scripts/install.sh
 - Cycles Wispr Flow hands-free recording in ~4m55s chunks (`RECORD_DURATION = 295`)
 - Polls `~/Library/Application Support/Wispr Flow/flow.sqlite` (read-only) for new transcriptions
 - Appends each chunk to a timestamped markdown file in `TRANSCRIPTS_DIR`
-- Sets terminal window title to `wispr-recording` so `focus_terminal()` can target the correct window via AppleScript (prevents Wispr paste going to wrong terminal)
+- Sets terminal window title to `wispr-recording` for window targeting
+- Uses `keyboard_suppress.py` CGEventTap to block Wispr's paste (falls back to focus management if no accessibility permission)
 - On shutdown: drains in-flight transcription, writes session summary footer
 - Post-recording interactive flow: prompt for title → folder picker → note generation via `llm.py`
 - Notes are saved as `{num:02d} {Title}.md` with YAML `date:` frontmatter in the chosen Obsidian folder

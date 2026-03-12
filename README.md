@@ -8,7 +8,7 @@
 
 ---
 
-A free, open-source wrapper around [Wispr Flow](https://wispr.com) that removes its 6-minute recording limit and adds automatic note generation to [Obsidian](https://obsidian.md).
+A free, open-source wrapper around [Wispr Flow](https://wispr.com) that removes its 6-minute recording limit and adds automatic note generation to [Obsidian](https://obsidian.md). **macOS only.**
 
 Record a meeting, lecture, brainstorm, or paper discussion — when you stop, structured notes appear in your Obsidian vault. Meetings get action items. Lectures get study notes. Everything is organized into the folder you choose.
 
@@ -54,6 +54,8 @@ The type of notes you get depends on where you save them:
 4. Generates structured notes and saves them to your Obsidian vault
 
 Your raw transcript is always saved separately — you never lose the original.
+
+> **Tip:** Grant Accessibility permission to your terminal app (System Settings → Privacy & Security → Accessibility) and Wispr's transcription text won't accidentally paste into other apps while recording.
 
 ## Make It Your Own
 
