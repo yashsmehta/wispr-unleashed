@@ -16,10 +16,7 @@ You keep the full transcript, and you control exactly how your notes are generat
 
 ## Getting Started
 
-Two things you need first:
-
-1. **[Wispr Flow](https://wispr.com)** — install it, do one test recording so it's set up
-2. **A free Google AI account** — [grab an API key here](https://aistudio.google.com/apikey) (takes 30 seconds)
+The only thing you need: **[Wispr Flow](https://wispr.com)** — install it and do one test recording so it's set up.
 
 Then open Terminal and paste this:
 
@@ -27,7 +24,7 @@ Then open Terminal and paste this:
 curl -fsSL https://raw.githubusercontent.com/yashsmehta/wispr-unleashed/main/scripts/get.sh | bash
 ```
 
-The installer walks you through everything — just follow the prompts.
+The installer walks you through everything — Obsidian vault, AI provider (bring any API key — Google, OpenAI, Anthropic), and shell command setup.
 
 ## Usage
 
@@ -65,7 +62,7 @@ The prompts that shape your notes live in `~/wispr-unleashed/prompts/`. Open the
 
 ### AI model
 
-The default is Google's Gemini (free tier). You can switch to any provider — OpenAI, Anthropic, or others — by editing `~/wispr-unleashed/.env`:
+Use any LLM provider you have an API key for. The installer sets this up, but you can change it anytime in `~/wispr-unleashed/.env`:
 
 ```bash
 # Google Gemini (default, free)

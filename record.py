@@ -45,6 +45,8 @@ RECORD_DURATION = 295    # 4m55s — stop just before Wispr's 5-min warning
 PROCESS_TIMEOUT = 30     # seconds to wait for transcription after stopping
 MAX_DURATION = 2 * 60 * 60  # 2 hour hard limit
 DRAIN_TIMEOUT = 15       # seconds to wait for in-flight chunk after Ctrl+C
+START_RETRY_INTERVAL = 10  # seconds between start-recording retries
+START_MAX_RETRIES = 2      # retry wispr-flow://start up to this many times
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -380,6 +382,7 @@ def main():
             redraw(active=True)
             start_recording()
             chunk_in_flight = True
+            start_retries_done = 0
 
             rec_start = time.monotonic()
             recording_active = True
@@ -406,6 +409,18 @@ def main():
                     break
 
                 rec_elapsed = time.monotonic() - rec_start
+
+                # Retry start if Wispr may not have begun recording
+                if recording_active and start_retries_done <= START_MAX_RETRIES:
+                    retry_at = START_RETRY_INTERVAL * (start_retries_done + 1)
+                    if rec_elapsed >= retry_at:
+                        if start_retries_done < START_MAX_RETRIES:
+                            start_recording()
+                            put(f"  {YELLOW}↻{RESET}  {DIM}nudging Wispr… ({start_retries_done + 1}/{START_MAX_RETRIES}){RESET}")
+                        else:
+                            put(f"  {YELLOW}⚠  Wispr may not be recording{RESET}")
+                            put(f"    {DIM}check the app — next chunk will retry automatically{RESET}")
+                        start_retries_done += 1
 
                 if recording_active and rec_elapsed >= RECORD_DURATION:
                     stop_recording()
