@@ -45,8 +45,8 @@ RECORD_DURATION = 295    # 4m55s — stop just before Wispr's 5-min warning
 PROCESS_TIMEOUT = 30     # seconds to wait for transcription after stopping
 MAX_DURATION = 2 * 60 * 60  # 2 hour hard limit
 DRAIN_TIMEOUT = 15       # seconds to wait for in-flight chunk after Ctrl+C
-START_RETRY_INTERVAL = 10  # seconds between start-recording retries
-START_MAX_RETRIES = 2      # retry wispr-flow://start up to this many times
+START_RETRY_INTERVAL = 30  # seconds between start-recording retries
+START_WARN_AFTER = 2       # show warning after this many retries (first chunk only)
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -410,17 +410,20 @@ def main():
 
                 rec_elapsed = time.monotonic() - rec_start
 
-                # Retry start if Wispr may not have begun recording
-                if recording_active and start_retries_done <= START_MAX_RETRIES:
+                # Keep nudging Wispr throughout the chunk — sometimes it
+                # misses the start command, especially on later chunks.
+                if recording_active:
                     retry_at = START_RETRY_INTERVAL * (start_retries_done + 1)
                     if rec_elapsed >= retry_at:
-                        if start_retries_done < START_MAX_RETRIES:
-                            start_recording()
-                            put(f"  {YELLOW}↻{RESET}  {DIM}nudging Wispr… ({start_retries_done + 1}/{START_MAX_RETRIES}){RESET}")
-                        else:
-                            put(f"  {YELLOW}⚠  Wispr may not be recording{RESET}")
-                            put(f"    {DIM}check the app — next chunk will retry automatically{RESET}")
+                        start_recording()
                         start_retries_done += 1
+                        # Only show messages on the very first chunk
+                        if stats["chunks"] == 0:
+                            if start_retries_done <= START_WARN_AFTER:
+                                put(f"  {YELLOW}↻{RESET}  {DIM}nudging Wispr… ({start_retries_done}/{START_WARN_AFTER}){RESET}")
+                            elif start_retries_done == START_WARN_AFTER + 1:
+                                put(f"  {YELLOW}⚠  Wispr may not be recording{RESET}")
+                                put(f"    {DIM}check the app — will keep retrying{RESET}")
 
                 if recording_active and rec_elapsed >= RECORD_DURATION:
                     stop_recording()
