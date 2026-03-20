@@ -16,7 +16,7 @@ litellm.suppress_debug_info = True
 
 # Support legacy GOOGLE_GENAI_USE_VERTEXAI=True by mapping to vertex_ai/ prefix
 _USE_VERTEX = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "").lower() == "true"
-_DEFAULT_MODEL = "vertex_ai/gemini-2.5-flash" if _USE_VERTEX else "gemini/gemini-2.5-flash"
+_DEFAULT_MODEL = "gemini/gemini-3.1-pro-preview"
 LLM_MODEL = os.getenv("LLM_MODEL", _DEFAULT_MODEL)
 
 # Map GOOGLE_CLOUD_PROJECT → VERTEXAI_PROJECT for litellm
@@ -45,22 +45,12 @@ def _read_obsidian_ref() -> str:
         return ""
 
 
-def _read_glossary(vault: Path) -> str:
-    try:
-        return (vault / "Glossary.md").read_text()
-    except FileNotFoundError:
-        return ""
-
-
-def _build_notes_prompt(category: str | None, vault: Path) -> str:
+def _build_notes_prompt(category: str | None) -> str:
     is_talk = category and category in _TALK_CATEGORIES
     base = _read_prompt("talk_notes") if is_talk else _read_prompt("meeting_notes")
     ref = _read_obsidian_ref()
     if ref:
         base += "\n\nOBSIDIAN FORMATTING REFERENCE:\n" + ref
-    glossary = _read_glossary(vault)
-    if glossary:
-        base += "\n\nUSER'S KNOWN GLOSSARY (do NOT define these — only flag terms NOT in this list):\n" + glossary
     return base
 
 
@@ -74,6 +64,9 @@ def _call_llm(system_prompt: str, transcript: str,
             {"role": "user", "content": transcript},
         ],
         temperature=temperature,
+        max_tokens=16384,
+        thinking={"type": "enabled", "budget_tokens": 20000},
+        allowed_openai_params=["thinking"],
     )
     text = response.choices[0].message.content
     if not text or not text.strip():
@@ -83,17 +76,15 @@ def _call_llm(system_prompt: str, transcript: str,
 # ── Public API ───────────────────────────────────────────────────────────────
 
 def generate_notes(transcript: str, category: str | None,
-                   meeting_num: int, vault: Path | None = None) -> str | None:
+                   meeting_num: int, **_kwargs) -> str | None:
     """Generate notes + action items from transcript text.
 
     Returns combined markdown string, or None on failure.
     """
     is_talk = category and category in _TALK_CATEGORIES
 
-    vault = vault or Path(os.getenv("OBSIDIAN_VAULT",
-                                    str(Path.home() / "Desktop" / "Obsidian Vault")))
-    prompt = _build_notes_prompt(category, vault)
-    prompt += f"\nThis is meeting #{meeting_num} in this series. Start the title as `# {meeting_num}: <title>`.\n"
+    prompt = _build_notes_prompt(category)
+    prompt += f"\nThis is meeting #{meeting_num} in this series.\n"
 
     if is_talk:
         return _call_llm(prompt, transcript, temperature=0.3)

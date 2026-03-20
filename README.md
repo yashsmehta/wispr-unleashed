@@ -67,7 +67,7 @@ Use any LLM provider you have an API key for. The installer sets this up, but yo
 ```bash
 # Google Gemini (default, free)
 GOOGLE_API_KEY=your-key
-LLM_MODEL=gemini/gemini-2.5-flash
+LLM_MODEL=gemini/gemini-3.1-pro
 
 # OpenAI
 OPENAI_API_KEY=your-key

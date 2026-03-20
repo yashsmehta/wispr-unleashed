@@ -265,19 +265,19 @@ def generate_notes(transcript_path: Path, dest_dir: Path, heading: str,
         put(f"{YELLOW}⚠{RESET}  {DIM}notes failed — empty response{RESET}")
         return
 
-    # Extract title from generated heading to build filename
-    first_line = result.split("\n")[0]
-    title_match = re.match(r"^#\s*(\d+):\s*(.+)$", first_line)
-    if title_match:
-        num = int(title_match.group(1))
-        title = title_match.group(2).strip()
-        filename = f"{num:02d} {title}.md"
+    # First line is the LLM-generated title (plain text, no markdown)
+    lines = result.split("\n", 1)
+    title = lines[0].strip().lstrip("# ").rstrip(".")
+    body = lines[1].lstrip("\n") if len(lines) > 1 else ""
+
+    if title:
+        filename = f"{meeting_num:02d} {title}.md"
     else:
         filename = f"{meeting_num:02d} {heading}.md"
 
     # Add YAML frontmatter with date
     date_str = datetime.now().strftime("%Y-%m-%d")
-    content = f"---\ndate: {date_str}\n---\n\n{result}\n"
+    content = f"---\ndate: {date_str}\n---\n{body}\n"
 
     notes_path = dest_dir / filename
     notes_path.write_text(content)
@@ -287,41 +287,9 @@ def generate_notes(transcript_path: Path, dest_dir: Path, heading: str,
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
-def prompt_title() -> str | None:
-    """Prompt for a meeting title after recording. Returns None to keep default."""
-    try:
-        sys.stdout.write(f"  {DIM}meeting title (enter to keep default):{RESET} ")
-        sys.stdout.flush()
-        title = input().strip()
-        return title if title else None
-    except (KeyboardInterrupt, EOFError):
-        return None
-
-
-def rename_transcript(md_path: Path, new_heading: str) -> Path:
-    """Rename transcript file and update the heading inside it."""
-    date_str = datetime.now().strftime("%Y-%m-%d")
-    slug = slugify(new_heading)
-    new_path = md_path.parent / f"{date_str}-{slug}.md"
-    if new_path == md_path:
-        return md_path
-
-    counter = 2
-    while new_path.exists():
-        new_path = md_path.parent / f"{date_str}-{slug}-{counter}.md"
-        counter += 1
-
-    # Update heading inside the file
-    content = md_path.read_text()
-    old_heading_line = content.split("\n")[0]
-    content = content.replace(old_heading_line, f"# {new_heading}", 1)
-    md_path.write_text(content)
-    md_path.rename(new_path)
-    return new_path
-
 
 def main():
-    heading = sys.argv[1] if len(sys.argv) >= 2 else datetime.now().strftime("Recording %I:%M %p")
+    heading = datetime.now().strftime("recording-%I-%M-%p").lower()
 
     if not WISPR_DB.exists():
         print("Wispr Flow not found. Is it installed?")
@@ -502,11 +470,6 @@ def main():
             flush_stdin()
             time.sleep(0.5)
             flush_stdin()
-            # Prompt for a real title
-            new_title = prompt_title()
-            if new_title:
-                heading = new_title
-                md_path = rename_transcript(md_path, heading)
 
             # Pick folder for notes
             put(f"{DIM}pick a folder for notes (esc to skip):{RESET}")

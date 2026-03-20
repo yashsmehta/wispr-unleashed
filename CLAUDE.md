@@ -69,7 +69,7 @@ All configuration is via environment variables (`.env` file loaded automatically
 
 | Variable | Default | Description |
 |---|---|---|
-| `LLM_MODEL` | `gemini/gemini-2.5-flash` | Model for note generation (any litellm-supported model) |
+| `LLM_MODEL` | `gemini/gemini-3.1-pro` | Model for note generation (any litellm-supported model) |
 | `OPENAI_API_KEY` | *(empty)* | For OpenAI models |
 | `ANTHROPIC_API_KEY` | *(empty)* | For Anthropic models |
 | `GOOGLE_API_KEY` | *(empty)* | For Gemini models |
