@@ -42,11 +42,12 @@ USER_NAME = os.getenv("USER_NAME", "")
 POLL_INTERVAL = 5        # seconds between DB polls while recording
 POLL_FAST = 1            # seconds between DB polls while waiting for transcription
 RECORD_DURATION = 295    # 4m55s — stop just before Wispr's 5-min warning
-PROCESS_TIMEOUT = 30     # seconds to wait for transcription after stopping
+PROCESS_TIMEOUT = 15     # seconds to wait for transcription after stopping
 MAX_DURATION = 2 * 60 * 60  # 2 hour hard limit
 DRAIN_TIMEOUT = 15       # seconds to wait for in-flight chunk after Ctrl+C
-START_RETRY_INTERVAL = 30  # seconds between start-recording retries
-START_WARN_AFTER = 2       # show warning after this many retries (first chunk only)
+START_RETRY_SCHEDULE = [5, 10, 15]  # seconds for first retries, then last value repeating
+START_WARN_AFTER = 2       # show warning after this many retries
+MAX_CHUNK_ATTEMPTS = 3     # auto-retry failed chunks before skipping
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -140,8 +141,11 @@ def _restore_previous_app():
         _prev_app_bundle = None
 
 
-def start_recording():
-    subprocess.run(["open", "wispr-flow://start-hands-free"], check=False)
+def start_recording() -> bool:
+    """Start Wispr recording. Returns True if the URL was dispatched."""
+    result = subprocess.run(["open", "wispr-flow://start-hands-free"],
+                            capture_output=True, check=False)
+    return result.returncode == 0
 
 
 def stop_recording():
@@ -166,6 +170,20 @@ def settle_after_paste():
         keyboard_suppress.stop()
     else:
         _restore_previous_app()
+
+
+def check_wispr_running() -> bool:
+    """Return True if a Wispr Flow process is found."""
+    result = subprocess.run(["pgrep", "-f", "Wispr Flow"], capture_output=True, check=False)
+    return result.returncode == 0
+
+
+def _next_retry_time(retries_done: int) -> float:
+    """Return elapsed seconds at which the next start-recording retry should fire."""
+    if retries_done < len(START_RETRY_SCHEDULE):
+        return START_RETRY_SCHEDULE[retries_done]
+    extra = retries_done - len(START_RETRY_SCHEDULE) + 1
+    return START_RETRY_SCHEDULE[-1] * (1 + extra)
 
 
 def get_utc_now() -> str:
@@ -223,6 +241,14 @@ def accept_chunk(result: dict, md_path: Path, known_ids: set, stats: dict):
     stats["chunks"] += 1
     stats["words"] += result["numWords"]
     stats["recording_time"] += result["duration"]
+
+
+def _finish_chunk(result: dict, md_path: Path, known_ids: set, stats: dict,
+                  redraw_fn):
+    """Accept a chunk, settle paste, and redraw progress."""
+    accept_chunk(result, md_path, known_ids, stats)
+    settle_after_paste()
+    redraw_fn(active=False)
 
 
 def write_footer(md_path: Path, stats: dict):
@@ -295,6 +321,10 @@ def main():
         print("Wispr Flow not found. Is it installed?")
         sys.exit(1)
 
+    if not check_wispr_running():
+        print("Wispr Flow is not running. Please start it first.")
+        sys.exit(1)
+
     interactive = sys.stdin.isatty()
 
     PID_FILE.write_text(str(os.getpid()))
@@ -337,7 +367,6 @@ def main():
             tty.setcbreak(fd)
 
         redraw(active=False)
-        since_utc = get_utc_now()
         needs_stop = False
 
         while not shutdown_requested:
@@ -346,94 +375,108 @@ def main():
                 put(f"{YELLOW}2h limit{RESET}")
                 break
 
+            # Set once per chunk; stable across retry attempts so late
+            # transcripts from earlier attempts are still caught.
             since_utc = get_utc_now()
-            redraw(active=True)
-            start_recording()
-            chunk_in_flight = True
-            start_retries_done = 0
+            chunk_succeeded = False
 
-            rec_start = time.monotonic()
-            recording_active = True
-            needs_stop = True
-
-            while not shutdown_requested:
-                interval = POLL_FAST if not recording_active else POLL_INTERVAL
-
-                if interactive:
-                    readable, _, _ = select.select([sys.stdin], [], [], interval)
-                    if readable:
-                        flush_stdin()
-                else:
-                    time.sleep(interval)
-
-                result = poll_for_transcription(since_utc, known_ids)
-                if result:
-                    chunk_in_flight = False
-                    accept_chunk(result, md_path, known_ids, stats)
-                    settle_after_paste()
-                    redraw(active=False)
-                    if recording_active:
-                        shutdown_requested = True
+            for attempt in range(MAX_CHUNK_ATTEMPTS):
+                if shutdown_requested:
                     break
 
-                rec_elapsed = time.monotonic() - rec_start
+                # On retries, clear any stuck Wispr state before starting
+                if attempt > 0:
+                    stop_recording()
+                    settle_after_paste()
 
-                # Keep nudging Wispr throughout the chunk — sometimes it
-                # misses the start command, especially on later chunks.
-                if recording_active:
-                    retry_at = START_RETRY_INTERVAL * (start_retries_done + 1)
-                    if rec_elapsed >= retry_at:
+                redraw(active=True)
+                if not start_recording():
+                    put(f"  {YELLOW}⚠{RESET}  {DIM}failed to dispatch start command{RESET}")
+                    continue
+                chunk_in_flight = True
+                start_retries_done = 0
+
+                rec_start = time.monotonic()
+                recording_active = True
+                needs_stop = True
+                timed_out = False
+
+                while not shutdown_requested:
+                    interval = POLL_FAST if not recording_active else POLL_INTERVAL
+
+                    if interactive:
+                        readable, _, _ = select.select([sys.stdin], [], [], interval)
+                        if readable:
+                            flush_stdin()
+                    else:
+                        time.sleep(interval)
+
+                    result = poll_for_transcription(since_utc, known_ids)
+                    if result:
+                        chunk_in_flight = False
+                        _finish_chunk(result, md_path, known_ids, stats, redraw)
+                        # WHY: if Wispr produced a transcript before we sent
+                        # stop, it finished on its own (user stopped it or it
+                        # hit its time limit). End the session rather than risk
+                        # a desynchronised chunk cycle.
+                        if recording_active:
+                            shutdown_requested = True
+                        chunk_succeeded = True
+                        break
+
+                    rec_elapsed = time.monotonic() - rec_start
+
+                    # Keep nudging Wispr — it sometimes misses the start command.
+                    if recording_active and rec_elapsed >= _next_retry_time(start_retries_done):
                         start_recording()
                         start_retries_done += 1
-                        # Only show messages on the very first chunk
-                        if stats["chunks"] == 0:
-                            if start_retries_done <= START_WARN_AFTER:
-                                put(f"  {YELLOW}↻{RESET}  {DIM}nudging Wispr… ({start_retries_done}/{START_WARN_AFTER}){RESET}")
-                            elif start_retries_done == START_WARN_AFTER + 1:
+                        if start_retries_done <= START_WARN_AFTER:
+                            put(f"  {YELLOW}↻{RESET}  {DIM}nudging Wispr… ({start_retries_done}){RESET}")
+                        elif start_retries_done == START_WARN_AFTER + 1:
+                            if not check_wispr_running():
+                                put(f"  {YELLOW}⚠  Wispr Flow is not running!{RESET}")
+                            else:
                                 put(f"  {YELLOW}⚠  Wispr may not be recording{RESET}")
-                                put(f"    {DIM}check the app — will keep retrying{RESET}")
+                            put(f"    {DIM}will keep retrying{RESET}")
 
-                if recording_active and rec_elapsed >= RECORD_DURATION:
-                    stop_recording()
-                    recording_active = False
-                    needs_stop = False
+                    if recording_active and rec_elapsed >= RECORD_DURATION:
+                        stop_recording()
+                        recording_active = False
+                        needs_stop = False
 
-                if not recording_active and rec_elapsed >= RECORD_DURATION + PROCESS_TIMEOUT:
-                    sys.stdout.write("\n")
-                    put(f"{YELLOW}⚠{RESET}  {DIM}transcript not received{RESET}")
-                    put(f"   {DIM}open Wispr Flow to retry — waiting for transcript…{RESET}")
-                    put(f"   {DIM}any key to skip this chunk and keep recording{RESET}")
+                    if not recording_active and rec_elapsed >= RECORD_DURATION + PROCESS_TIMEOUT:
+                        timed_out = True
+                        break
 
-                    # Keep polling — transcript may arrive after manual retry
-                    while not shutdown_requested:
-                        if interactive:
-                            readable, _, _ = select.select([sys.stdin], [], [], POLL_FAST)
-                            if readable:
-                                flush_stdin()
-                                # Check DB before assuming skip
-                                result = poll_for_transcription(since_utc, known_ids)
-                                if result:
-                                    accept_chunk(result, md_path, known_ids, stats)
-                                    put(f"{GREEN}✓{RESET}  {DIM}transcript recovered{RESET}")
-                                    settle_after_paste()
-                                    redraw(active=False)
-                                else:
-                                    put(f"   {DIM}skipped{RESET}")
-                                    settle_after_paste()
-                                chunk_in_flight = False
-                                break
-                        else:
-                            time.sleep(POLL_FAST)
+                if chunk_succeeded or shutdown_requested:
+                    break
 
-                        result = poll_for_transcription(since_utc, known_ids)
-                        if result:
-                            accept_chunk(result, md_path, known_ids, stats)
-                            put(f"{GREEN}✓{RESET}  {DIM}transcript recovered{RESET}")
-                            settle_after_paste()
-                            redraw(active=False)
+                if timed_out:
+                    # Check DB one more time before giving up on this attempt
+                    result = poll_for_transcription(since_utc, known_ids)
+                    if result:
+                        chunk_in_flight = False
+                        _finish_chunk(result, md_path, known_ids, stats, redraw)
+                        chunk_succeeded = True
+                        break
+
+                    remaining = MAX_CHUNK_ATTEMPTS - attempt - 1
+                    if remaining > 0:
+                        if not check_wispr_running():
+                            put(f"  {YELLOW}⚠  Wispr Flow not running — skipping chunk{RESET}")
                             chunk_in_flight = False
                             break
-                    break
+                        put(f"  {YELLOW}↻{RESET}  {DIM}no transcript — retrying chunk ({remaining} left){RESET}")
+                        time.sleep(2)
+                    else:
+                        sys.stdout.write("\n")
+                        put(f"  {YELLOW}⚠{RESET}  {DIM}chunk failed after {MAX_CHUNK_ATTEMPTS} attempts — skipping{RESET}")
+                        settle_after_paste()
+                        chunk_in_flight = False
+
+            # Brief pause between chunks to let Wispr settle
+            if chunk_succeeded and not shutdown_requested:
+                time.sleep(1)
 
         if needs_stop:
             stop_recording()
@@ -445,9 +488,7 @@ def main():
                     break
                 result = poll_for_transcription(since_utc, known_ids)
                 if result:
-                    accept_chunk(result, md_path, known_ids, stats)
-                    settle_after_paste()
-                    redraw(active=False)
+                    _finish_chunk(result, md_path, known_ids, stats, redraw)
                     break
                 if interactive:
                     readable, _, _ = select.select([sys.stdin], [], [], POLL_FAST)
