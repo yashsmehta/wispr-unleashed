@@ -161,13 +161,13 @@ class FolderPicker:
         self.vault_path = vault_path
         self.category: str | None = None
         self.subfolder: str | None = None
+        self.vault_root = False
         self.completed = False
 
     def run(self, raw_mode: bool = False) -> bool:
         """Run the interactive picker. raw_mode=True if terminal is already cbreak."""
         categories = discover_categories(self.vault_path)
-        if not categories:
-            return False
+        items = categories + ["(vault root)"]
 
         fd = sys.stdin.fileno()
         old = None
@@ -175,10 +175,14 @@ class FolderPicker:
             old = termios.tcgetattr(fd)
             tty.setcbreak(fd)
         try:
-            menu = SelectMenu(categories, prompt="notes")
+            menu = SelectMenu(items, prompt="notes")
             choice = menu.run()
             if choice is None:
                 return False
+            if choice == "(vault root)":
+                self.vault_root = True
+                self.completed = True
+                return True
             self.category = choice
 
             subs = discover_subfolders(self.vault_path, self.category)
@@ -197,6 +201,8 @@ class FolderPicker:
 
     def label(self) -> str:
         if self.completed:
+            if self.vault_root:
+                return "vault root"
             parts = [self.category]
             if self.subfolder:
                 parts.append(self.subfolder)
@@ -204,7 +210,11 @@ class FolderPicker:
         return "any key → pick folder"
 
     def get_destination(self) -> Path | None:
-        if not self.completed or not self.category:
+        if not self.completed:
+            return None
+        if self.vault_root:
+            return self.vault_path
+        if not self.category:
             return None
         dest = self.vault_path / self.category
         if self.subfolder:

@@ -11,6 +11,10 @@ from functools import lru_cache
 from pathlib import Path
 
 import litellm
+from dotenv import load_dotenv
+
+ROOT_DIR = Path(__file__).resolve().parent
+load_dotenv(ROOT_DIR / ".env")
 
 litellm.suppress_debug_info = True
 
@@ -54,8 +58,7 @@ def _build_notes_prompt(category: str | None) -> str:
     return base
 
 
-def _call_llm(system_prompt: str, transcript: str,
-              temperature: float = 0.3) -> str | None:
+def _call_llm(system_prompt: str, transcript: str) -> str | None:
     """Make a single LLM call and return cleaned text, or None."""
     response = litellm.completion(
         model=LLM_MODEL,
@@ -63,10 +66,7 @@ def _call_llm(system_prompt: str, transcript: str,
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": transcript},
         ],
-        temperature=temperature,
         max_tokens=16384,
-        thinking={"type": "enabled", "budget_tokens": 20000},
-        allowed_openai_params=["thinking"],
     )
     text = response.choices[0].message.content
     if not text or not text.strip():
@@ -76,7 +76,8 @@ def _call_llm(system_prompt: str, transcript: str,
 # ── Public API ───────────────────────────────────────────────────────────────
 
 def generate_notes(transcript: str, category: str | None,
-                   meeting_num: int, **_kwargs) -> str | None:
+                   meeting_num: int, *, user_name: str = "",
+                   **_kwargs) -> str | None:
     """Generate notes + action items from transcript text.
 
     Returns combined markdown string, or None on failure.
@@ -84,16 +85,21 @@ def generate_notes(transcript: str, category: str | None,
     is_talk = category and category in _TALK_CATEGORIES
 
     prompt = _build_notes_prompt(category)
+    if user_name:
+        prompt += (
+            f"\n\nThe user's name is {user_name}. Use this only when it helps "
+            "disambiguate speakers; do not invent speaker identities."
+        )
     prompt += f"\nThis is meeting #{meeting_num} in this series.\n"
 
     if is_talk:
-        return _call_llm(prompt, transcript, temperature=0.3)
+        return _call_llm(prompt, transcript)
 
     # Meetings: run notes + action items in parallel
     with ThreadPoolExecutor(max_workers=2) as pool:
-        notes_future = pool.submit(_call_llm, prompt, transcript, 0.3)
+        notes_future = pool.submit(_call_llm, prompt, transcript)
         actions_future = pool.submit(_call_llm, _read_prompt("action_items"),
-                                     transcript, 0.2)
+                                     transcript)
         notes = notes_future.result()
         action_items = actions_future.result()
 

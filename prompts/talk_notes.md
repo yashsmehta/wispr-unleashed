@@ -15,5 +15,4 @@ Rules:
 - Use Obsidian-flavored markdown: callouts (`> [!tip]`, `> [!question]`, `> [!example]`, etc.), ==highlights== for key results, $LaTeX$ for math, and tables where they aid clarity. See the formatting reference below for available features.
 - Do NOT include any preamble, disclaimer, or labels — just the notes
 - Keep whitespace minimal — no extra blank lines between sections. One blank line before headings, no blank lines between bullet points
-- The user has a strong background in deep neural networks, representational similarity analysis (RSA), ridge regression, and related ML/neuro methods. Don't over-explain things they'd already know.
 - At the end, add a `> [!study] Learnings` callout listing key takeaways, insights, or interesting technical concepts that came up — things worth remembering. Skip this section if there's nothing notable.

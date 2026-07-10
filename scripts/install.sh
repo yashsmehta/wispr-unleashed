@@ -1,13 +1,11 @@
 #!/bin/bash
-# Installer for Wispr Unleashed.
+# Interactive installer for Wispr Unleashed.
 
-set -e
+set -eo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="$ROOT_DIR/.env"
-
-# ── ANSI ─────────────────────────────────────────────────────────────────────
+umask 077
 
 DIM='\033[2m'
 BOLD='\033[1m'
@@ -21,349 +19,269 @@ warn() { echo -e "  ${YELLOW}⚠${RESET}  $1"; }
 fail() { echo -e "  ${YELLOW}✗${RESET}  $1"; }
 dim()  { echo -e "  ${DIM}$1${RESET}"; }
 
-# ── Header ───────────────────────────────────────────────────────────────────
+set_env() {
+    key="$1"
+    value="$2"
+    temp_file="$ENV_FILE.tmp.$$"
+    if [ -f "$ENV_FILE" ]; then
+        awk -v key="$key" 'index($0, key "=") != 1 { print }' "$ENV_FILE" > "$temp_file"
+    else
+        : > "$temp_file"
+    fi
+    printf '%s=%s\n' "$key" "$value" >> "$temp_file"
+    mv "$temp_file" "$ENV_FILE"
+    chmod 600 "$ENV_FILE"
+}
+
+get_env() {
+    key="$1"
+    [ -f "$ENV_FILE" ] || return 0
+    awk -v key="$key" 'index($0, key "=") == 1 { print substr($0, length(key) + 2); exit }' "$ENV_FILE"
+}
+
+expand_user_path() {
+    case "$1" in
+        "~") printf '%s\n' "$HOME" ;;
+        "~/"*) printf '%s/%s\n' "$HOME" "${1#~/}" ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
 
 echo ""
 echo -e "  ${BOLD}✦ wispr unleashed${RESET}"
 echo ""
 
-# ── Check Python ─────────────────────────────────────────────────────────────
-
-if ! command -v python3 &>/dev/null; then
-    fail "python 3 not found"
-    dim "   install from https://www.python.org/downloads/"
+if [ "$(uname -s)" != "Darwin" ]; then
+    fail "Wispr Unleashed currently supports macOS only"
     exit 1
 fi
-
-PY_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-ok "python $PY_VERSION"
-
-# ── Check Wispr Flow ─────────────────────────────────────────────────────────
+ok "macOS"
 
 WISPR_DB="$HOME/Library/Application Support/Wispr Flow/flow.sqlite"
 if [ ! -f "$WISPR_DB" ]; then
-    fail "wispr flow not found"
-    dim "   install from https://wispr.com and do one test recording"
+    fail "Wispr Flow not found"
+    dim "   install it from https://wispr.com and complete one test recording"
     exit 1
 fi
-ok "wispr flow"
+ok "Wispr Flow"
 
-# ── Install Python dependencies ──────────────────────────────────────────────
-
-echo ""
-dim "installing dependencies…"
-pip3 install -q -r "$ROOT_DIR/requirements.txt"
-ok "dependencies installed"
-
-# ── LLM for note generation ─────────────────────────────────────────────────
-
-echo ""
-
-# Check if already configured
-HAS_CONFIG=false
-if [ -f "$ENV_FILE" ]; then
-    if grep -qE "(OPENAI_API_KEY|ANTHROPIC_API_KEY|GOOGLE_API_KEY|GEMINI_API_KEY)=" "$ENV_FILE" 2>/dev/null; then
-        MODEL=$(grep "^LLM_MODEL=" "$ENV_FILE" 2>/dev/null | cut -d= -f2)
-        ok "LLM configured${MODEL:+ ($MODEL)}"
-        HAS_CONFIG=true
-    elif grep -q "GOOGLE_GENAI_USE_VERTEXAI=True" "$ENV_FILE" 2>/dev/null; then
-        ok "vertex AI configured"
-        HAS_CONFIG=true
-    fi
+# uv supplies an isolated environment and downloads Python 3.10+ if necessary.
+UV_BIN="$(command -v uv 2>/dev/null || true)"
+if [ -z "$UV_BIN" ]; then
+    echo ""
+    dim "installing uv…"
+    curl -LsSf https://astral.sh/uv/install.sh | env UV_NO_MODIFY_PATH=1 sh
+    for candidate in "$HOME/.local/bin/uv" "$HOME/.cargo/bin/uv"; do
+        if [ -x "$candidate" ]; then
+            UV_BIN="$candidate"
+            break
+        fi
+    done
 fi
 
-if [ "$HAS_CONFIG" = false ]; then
-    echo -e "  ${DIM}note generation — pick your LLM provider${RESET}"
+if [ -z "$UV_BIN" ] || [ ! -x "$UV_BIN" ]; then
+    fail "uv installation failed"
+    dim "   see https://docs.astral.sh/uv/getting-started/installation/"
+    exit 1
+fi
+ok "uv"
+
+echo ""
+dim "setting up an isolated Python environment…"
+(cd "$ROOT_DIR" && "$UV_BIN" sync --locked --no-dev --quiet)
+PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
+PY_VERSION=$("$PYTHON_BIN" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+ok "Python $PY_VERSION + dependencies"
+
+touch "$ENV_FILE"
+chmod 600 "$ENV_FILE"
+
+# Migrate the model identifier written by pre-public-release installers.
+if [ "$(get_env "LLM_MODEL")" = "gemini/gemini-3.1-pro" ]; then
+    set_env "LLM_MODEL" "gemini/gemini-3.1-pro-preview"
+fi
+
+echo ""
+if grep -qE '^(OPENAI_API_KEY|ANTHROPIC_API_KEY|GOOGLE_API_KEY|GEMINI_API_KEY)=.+' "$ENV_FILE" 2>/dev/null || \
+   grep -q '^GOOGLE_GENAI_USE_VERTEXAI=True' "$ENV_FILE" 2>/dev/null; then
+    MODEL=$(get_env "LLM_MODEL")
+    ok "LLM configured${MODEL:+ ($MODEL)}"
+else
+    echo -e "  ${DIM}note generation — choose your LLM provider${RESET}"
     echo ""
-    echo -e "     ${CYAN}1${RESET}  Google Gemini ${DIM}— free tier available${RESET}"
+    echo -e "     ${CYAN}1${RESET}  Google Gemini"
     echo -e "     ${CYAN}2${RESET}  OpenAI"
     echo -e "     ${CYAN}3${RESET}  Anthropic"
-    echo -e "     ${CYAN}4${RESET}  Skip ${DIM}— configure later in .env${RESET}"
+    echo -e "     ${CYAN}4${RESET}  Skip ${DIM}— configure .env later${RESET}"
     echo ""
     read -rp "  choice [1]: " provider
     provider=${provider:-1}
 
     case "$provider" in
         1)
-            dim "get a free key at: https://aistudio.google.com/apikey"
+            dim "get a key at https://aistudio.google.com/apikey"
+            read -srp "  paste your API key: " api_key
             echo ""
-            read -rp "  paste your API key: " api_key
             if [ -n "$api_key" ]; then
-                echo "GOOGLE_API_KEY=$api_key" > "$ENV_FILE"
-                echo "LLM_MODEL=gemini/gemini-3.1-pro" >> "$ENV_FILE"
-                ok "gemini configured"
+                set_env "GOOGLE_API_KEY" "$api_key"
+                set_env "LLM_MODEL" "gemini/gemini-3.1-pro-preview"
+                ok "Gemini configured"
             else
-                warn "no key entered — add GOOGLE_API_KEY to .env later"
-                touch "$ENV_FILE"
+                warn "no key entered"
             fi
             ;;
         2)
-            dim "get a key at: https://platform.openai.com/api-keys"
+            dim "get a key at https://platform.openai.com/api-keys"
+            read -srp "  paste your API key: " api_key
             echo ""
-            read -rp "  paste your API key: " api_key
             if [ -n "$api_key" ]; then
-                echo "OPENAI_API_KEY=$api_key" > "$ENV_FILE"
-                echo "LLM_MODEL=gpt-4o-mini" >> "$ENV_FILE"
-                ok "openai configured"
+                set_env "OPENAI_API_KEY" "$api_key"
+                set_env "LLM_MODEL" "gpt-4o-mini"
+                ok "OpenAI configured"
             else
-                warn "no key entered — add OPENAI_API_KEY to .env later"
-                touch "$ENV_FILE"
+                warn "no key entered"
             fi
             ;;
         3)
-            dim "get a key at: https://console.anthropic.com/settings/keys"
+            dim "get a key at https://console.anthropic.com/settings/keys"
+            read -srp "  paste your API key: " api_key
             echo ""
-            read -rp "  paste your API key: " api_key
             if [ -n "$api_key" ]; then
-                echo "ANTHROPIC_API_KEY=$api_key" > "$ENV_FILE"
-                echo "LLM_MODEL=anthropic/claude-sonnet-4-20250514" >> "$ENV_FILE"
-                ok "anthropic configured"
+                set_env "ANTHROPIC_API_KEY" "$api_key"
+                set_env "LLM_MODEL" "anthropic/claude-sonnet-5"
+                ok "Anthropic configured"
             else
-                warn "no key entered — add ANTHROPIC_API_KEY to .env later"
-                touch "$ENV_FILE"
+                warn "no key entered"
             fi
             ;;
         *)
-            dim "skipped — edit .env when ready (see README for options)"
-            touch "$ENV_FILE"
+            dim "skipped — edit $ENV_FILE when ready"
             ;;
     esac
 fi
 
-# ── Obsidian vault ──────────────────────────────────────────────────────────
-
 echo ""
-
-# Check if already configured in .env
-EXISTING_VAULT=""
-if [ -f "$ENV_FILE" ]; then
-    EXISTING_VAULT=$(grep "^OBSIDIAN_VAULT=" "$ENV_FILE" 2>/dev/null | cut -d= -f2)
-fi
-
-if [ -n "$EXISTING_VAULT" ]; then
-    EVAL_VAULT=$(eval echo "$EXISTING_VAULT" 2>/dev/null || echo "$EXISTING_VAULT")
-    if [ -d "$EVAL_VAULT" ]; then
-        ok "obsidian vault → ${EXISTING_VAULT/$HOME/~}"
-    else
-        warn "vault path not found: ${EXISTING_VAULT/$HOME/~}"
-    fi
+EXISTING_VAULT=$(get_env "OBSIDIAN_VAULT")
+if [ -n "$EXISTING_VAULT" ] && [ -d "$(expand_user_path "$EXISTING_VAULT")" ]; then
+    ok "Obsidian vault → ${EXISTING_VAULT/$HOME/~}"
 else
-    echo -e "  ${BOLD}obsidian vault${RESET}"
-    dim "your notes and transcripts will be saved here"
+    echo -e "  ${BOLD}Obsidian vault${RESET}"
+    dim "notes and transcripts will be saved here"
     echo ""
-    echo -e "     ${CYAN}1${RESET}  Scan my Mac ${DIM}— auto-detect vault locations${RESET}"
-    echo -e "     ${CYAN}2${RESET}  Enter path  ${DIM}— I know where my vault is${RESET}"
-    echo -e "     ${CYAN}3${RESET}  Skip        ${DIM}— configure later in .env${RESET}"
+    echo -e "     ${CYAN}1${RESET}  Scan my Mac"
+    echo -e "     ${CYAN}2${RESET}  Enter path"
+    echo -e "     ${CYAN}3${RESET}  Skip"
     echo ""
     read -rp "  choice [1]: " vault_method
     vault_method=${vault_method:-1}
+    CHOSEN_VAULT=""
 
-    case "$vault_method" in
-        1)
-            echo ""
-            dim "scanning…"
-
-            DETECTED_VAULTS=()
-
-            # Check common locations first
-            for candidate in \
-                "$HOME/Desktop/Obsidian Vault" \
-                "$HOME/Documents/Obsidian Vault" \
-                "$HOME/Obsidian" \
-                "$HOME/Documents/Obsidian" \
-                "$HOME/Desktop/Obsidian"; do
-                if [ -d "$candidate" ] && [ -d "$candidate/.obsidian" ]; then
-                    DETECTED_VAULTS+=("$candidate")
-                fi
-            done
-
-            # Deep scan Desktop, Documents, and Home
-            for dir in "$HOME/Desktop" "$HOME/Documents" "$HOME"; do
-                if [ -d "$dir" ]; then
-                    while IFS= read -r vault_dir; do
-                        vault_parent="$(dirname "$vault_dir")"
-                        already=false
-                        for v in "${DETECTED_VAULTS[@]}"; do
-                            if [ "$v" = "$vault_parent" ]; then
-                                already=true
-                                break
-                            fi
-                        done
-                        if [ "$already" = false ]; then
-                            DETECTED_VAULTS+=("$vault_parent")
-                        fi
-                    done < <(find "$dir" -maxdepth 3 -name ".obsidian" -type d 2>/dev/null)
-                fi
-            done
-
-            if [ ${#DETECTED_VAULTS[@]} -eq 0 ]; then
-                echo ""
-                warn "no vaults found"
-                dim "   enter the path to your Obsidian vault"
-                echo ""
-                read -rp "  vault path: " manual_path
-                if [ -n "$manual_path" ]; then
-                    EVAL_PATH=$(eval echo "$manual_path" 2>/dev/null || echo "$manual_path")
-                    if [ -d "$EVAL_PATH" ]; then
-                        CHOSEN_VAULT="$EVAL_PATH"
-                    else
-                        echo ""
-                        read -rp "  doesn't exist yet — create it? [Y/n]: " create_vault
-                        create_vault=${create_vault:-Y}
-                        if [[ "$create_vault" =~ ^[Yy] ]]; then
-                            mkdir -p "$EVAL_PATH"
-                            CHOSEN_VAULT="$EVAL_PATH"
-                            ok "created ${manual_path/$HOME/~}"
-                        fi
-                    fi
-                fi
-
-            elif [ ${#DETECTED_VAULTS[@]} -eq 1 ]; then
-                VAULT="${DETECTED_VAULTS[0]}"
-                echo ""
-                echo -e "     ${GREEN}●${RESET}  ${VAULT/$HOME/~}"
-                echo ""
-                read -rp "  use this vault? [Y/n]: " use_detected
-                use_detected=${use_detected:-Y}
-                if [[ "$use_detected" =~ ^[Yy] ]]; then
-                    CHOSEN_VAULT="$VAULT"
-                fi
-
-            else
-                echo ""
-                dim "found ${#DETECTED_VAULTS[@]} vaults:"
-                echo ""
-                i=1
-                for v in "${DETECTED_VAULTS[@]}"; do
-                    echo -e "     ${CYAN}$i${RESET}  ${v/$HOME/~}"
-                    i=$((i + 1))
+    if [ "$vault_method" = "1" ]; then
+        dim "scanning common vault locations…"
+        DETECTED_VAULTS=()
+        for root in \
+            "$HOME/Desktop" \
+            "$HOME/Documents" \
+            "$HOME/Library/Mobile Documents/iCloud~md~obsidian/Documents"; do
+            [ -d "$root" ] || continue
+            while IFS= read -r marker; do
+                vault="$(dirname "$marker")"
+                duplicate=false
+                for existing in "${DETECTED_VAULTS[@]}"; do
+                    [ "$existing" = "$vault" ] && duplicate=true
                 done
-                echo ""
-                read -rp "  choice [1]: " vault_choice
-                vault_choice=${vault_choice:-1}
-                if [ "$vault_choice" -ge 1 ] && [ "$vault_choice" -le "${#DETECTED_VAULTS[@]}" ] 2>/dev/null; then
-                    CHOSEN_VAULT="${DETECTED_VAULTS[$((vault_choice - 1))]}"
+                if [ "$duplicate" = false ]; then
+                    DETECTED_VAULTS+=("$vault")
                 fi
-            fi
-            ;;
+            done < <(find "$root" -maxdepth 4 -name .obsidian -type d 2>/dev/null)
+        done
 
-        2)
+        if [ ${#DETECTED_VAULTS[@]} -gt 0 ]; then
             echo ""
-            dim "enter the full path (tab completion works)"
-            dim "example: ~/Documents/My Notes"
+            i=1
+            for vault in "${DETECTED_VAULTS[@]}"; do
+                echo -e "     ${CYAN}$i${RESET}  ${vault/$HOME/~}"
+                i=$((i + 1))
+            done
             echo ""
-            read -rep "  vault path: " manual_path
-            if [ -n "$manual_path" ]; then
-                EVAL_PATH=$(eval echo "$manual_path" 2>/dev/null || echo "$manual_path")
-                if [ -d "$EVAL_PATH" ]; then
-                    CHOSEN_VAULT="$EVAL_PATH"
-                else
-                    echo ""
-                    read -rp "  doesn't exist yet — create it? [Y/n]: " create_vault
-                    create_vault=${create_vault:-Y}
-                    if [[ "$create_vault" =~ ^[Yy] ]]; then
-                        mkdir -p "$EVAL_PATH"
-                        CHOSEN_VAULT="$EVAL_PATH"
-                        ok "created ${manual_path/$HOME/~}"
-                    fi
-                fi
+            read -rp "  choice [1]: " vault_choice
+            vault_choice=${vault_choice:-1}
+            if [ "$vault_choice" -ge 1 ] 2>/dev/null && [ "$vault_choice" -le "${#DETECTED_VAULTS[@]}" ]; then
+                CHOSEN_VAULT="${DETECTED_VAULTS[$((vault_choice - 1))]}"
             fi
-            ;;
-
-        *)
-            dim "skipped — set OBSIDIAN_VAULT in .env when ready"
-            ;;
-    esac
-
-    # Ask for name (used in note generation for context)
-    if [ -n "${CHOSEN_VAULT:-}" ]; then
-        echo ""
-        read -rp "  your first name: " user_name
+        else
+            warn "no Obsidian vaults found"
+            vault_method="2"
+        fi
     fi
 
-    # Write vault config and create Transcripts dir
-    if [ -n "${CHOSEN_VAULT:-}" ]; then
+    if [ "$vault_method" = "2" ]; then
+        read -rep "  vault path: " manual_path
+        if [ -n "$manual_path" ]; then
+            candidate=$(expand_user_path "$manual_path")
+            if [ -d "$candidate" ]; then
+                CHOSEN_VAULT="$candidate"
+            else
+                warn "that folder does not exist; open or create the vault in Obsidian first"
+            fi
+        fi
+    fi
+
+    if [ -n "$CHOSEN_VAULT" ]; then
         VAULT_SHORT="${CHOSEN_VAULT/$HOME/~}"
-
-        if [ -f "$ENV_FILE" ]; then
-            echo "OBSIDIAN_VAULT=$VAULT_SHORT" >> "$ENV_FILE"
-        else
-            echo "OBSIDIAN_VAULT=$VAULT_SHORT" > "$ENV_FILE"
-        fi
-
-        if [ -n "${user_name:-}" ]; then
-            echo "USER_NAME=$user_name" >> "$ENV_FILE"
-        fi
-
-        # Create Transcripts folder
-        TRANSCRIPTS_DIR="$CHOSEN_VAULT/Transcripts"
-        if [ ! -d "$TRANSCRIPTS_DIR" ]; then
-            mkdir -p "$TRANSCRIPTS_DIR"
-        fi
-
-        echo ""
-        ok "vault → ${VAULT_SHORT}"
-        dim "transcripts → ${VAULT_SHORT}/Transcripts"
+        set_env "OBSIDIAN_VAULT" "$VAULT_SHORT"
+        mkdir -p "$CHOSEN_VAULT/Transcripts"
+        read -rp "  your first name (optional): " user_name
+        [ -n "$user_name" ] && set_env "USER_NAME" "$user_name"
+        ok "vault → $VAULT_SHORT"
+    elif [ "$vault_method" != "3" ]; then
+        warn "vault not configured — set OBSIDIAN_VAULT in .env before recording"
     fi
 fi
 
-# ── Shell command ────────────────────────────────────────────────────────────
+# Install both a normal executable and a shell function that supersedes the
+# function written by older versions of this installer.
+BIN_DIR="$HOME/.local/bin"
+WISPR_BIN="$BIN_DIR/wispr"
+mkdir -p "$BIN_DIR"
+{
+    echo '#!/bin/sh'
+    printf 'exec "%s" "%s/record.py" "$@"\n' "$PYTHON_BIN" "$ROOT_DIR"
+} > "$WISPR_BIN"
+chmod 755 "$WISPR_BIN"
+ok "wispr command → ~/.local/bin/wispr"
 
-SHELL_NAME="$(basename "$SHELL")"
-if [ "$SHELL_NAME" = "zsh" ]; then
-    RC_FILE="$HOME/.zshrc"
-elif [ "$SHELL_NAME" = "bash" ]; then
+SHELL_NAME="$(basename "${SHELL:-zsh}")"
+if [ "$SHELL_NAME" = "bash" ]; then
     RC_FILE="$HOME/.bashrc"
 else
-    RC_FILE=""
+    RC_FILE="$HOME/.zshrc"
 fi
 
-WISPR_FUNC='wispr() {
-  python3 '"$ROOT_DIR"'/record.py "$*"
-}'
-
-echo ""
-
-if [ -n "$RC_FILE" ] && grep -q 'wispr()' "$RC_FILE" 2>/dev/null; then
-    ok "wispr command already set up"
+RC_TEMP="$RC_FILE.tmp.$$"
+if [ -f "$RC_FILE" ]; then
+    awk '
+        $0 == "# >>> wispr-unleashed >>>" { skip=1; next }
+        $0 == "# <<< wispr-unleashed <<<" { skip=0; next }
+        !skip { print }
+    ' "$RC_FILE" > "$RC_TEMP"
 else
-    echo -e "  ${DIM}add${RESET} ${BOLD}wispr${RESET} ${DIM}command to your shell?${RESET}"
-    dim "lets you run: wispr \"Meeting Title\""
-    echo ""
-    read -rp "  add to ${RC_FILE/$HOME/~}? [Y/n]: " add_alias
-    add_alias=${add_alias:-Y}
-
-    if [[ "$add_alias" =~ ^[Yy] ]]; then
-        if [ -n "$RC_FILE" ]; then
-            echo "" >> "$RC_FILE"
-            echo "$WISPR_FUNC" >> "$RC_FILE"
-            ok "wispr command added to ${RC_FILE/$HOME/~}"
-        else
-            warn "couldn't detect shell config"
-            dim "   add this to your shell config manually:"
-            echo ""
-            echo "    $WISPR_FUNC"
-        fi
-    else
-        dim "skipped — you can always run directly:"
-        dim "python3 $ROOT_DIR/record.py \"Meeting Title\""
-    fi
+    : > "$RC_TEMP"
 fi
-
-# ── Done ─────────────────────────────────────────────────────────────────────
+{
+    echo ""
+    echo '# >>> wispr-unleashed >>>'
+    echo 'export PATH="$HOME/.local/bin:$PATH"'
+    echo 'wispr() {'
+    printf '  "%s" "%s/record.py" "$@"\n' "$PYTHON_BIN" "$ROOT_DIR"
+    echo '}'
+    echo '# <<< wispr-unleashed <<<'
+} >> "$RC_TEMP"
+mv "$RC_TEMP" "$RC_FILE"
 
 echo ""
 echo -e "  ${GREEN}●${RESET} ${BOLD}ready${RESET}"
 echo ""
-if [ -n "$RC_FILE" ] && grep -q 'wispr()' "$RC_FILE" 2>/dev/null; then
-    dim "start recording:"
-    echo ""
-    echo -e "     ${BOLD}wispr${RESET} ${DIM}\"Meeting Title\"${RESET}"
-    echo ""
-    dim "restart your terminal or run: source ${RC_FILE/$HOME/~}"
-else
-    dim "start recording:"
-    echo ""
-    echo -e "     ${BOLD}python3 $ROOT_DIR/record.py${RESET} ${DIM}\"Meeting Title\"${RESET}"
-fi
+dim "restart Terminal or run: source ${RC_FILE/$HOME/~}"
+echo -e "  then start with: ${BOLD}wispr${RESET} ${DIM}\"Meeting Title\"${RESET}"
 echo ""

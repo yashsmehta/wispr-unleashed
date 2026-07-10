@@ -4,7 +4,14 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
 WORKFLOW_DIR="$HOME/Library/Services/Wispr Unleashed.workflow/Contents"
+
+if [ ! -x "$PYTHON_BIN" ]; then
+    echo "Run bash scripts/install.sh before setting up the shortcut."
+    exit 1
+fi
 
 echo "Setting up Wispr Unleashed keyboard shortcut..."
 
@@ -13,7 +20,7 @@ rm -rf "$HOME/Library/Services/Wispr Unleashed.workflow"
 mkdir -p "$WORKFLOW_DIR"
 
 # Create Info.plist (required for macOS to detect the workflow)
-python3 -c "
+"$PYTHON_BIN" -c "
 import plistlib
 
 info = {
@@ -37,7 +44,7 @@ with open('$WORKFLOW_DIR/Info.plist', 'wb') as f:
 "
 
 # Create the Automator workflow document
-python3 -c "
+"$PYTHON_BIN" -c "
 import plistlib, uuid
 
 action_uuid = str(uuid.uuid4()).upper()

@@ -19,7 +19,8 @@ import sys
 import termios
 import time
 import tty
-from datetime import datetime, timezone
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -30,13 +31,16 @@ from ui import (
     DIM, BOLD, GREEN, YELLOW, CYAN, RESET, HIDE_CURSOR, SHOW_CURSOR,
 )
 
-load_dotenv()
+ROOT_DIR = Path(__file__).resolve().parent
+load_dotenv(ROOT_DIR / ".env")
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
 WISPR_DB = Path.home() / "Library" / "Application Support" / "Wispr Flow" / "flow.sqlite"
 OBSIDIAN_VAULT = Path(os.getenv("OBSIDIAN_VAULT", str(Path.home() / "Desktop" / "Obsidian Vault"))).expanduser()
-TRANSCRIPTS_DIR = Path(os.getenv("TRANSCRIPTS_DIR", str(OBSIDIAN_VAULT / "Transcripts")))
+TRANSCRIPTS_DIR = Path(
+    os.getenv("TRANSCRIPTS_DIR", str(OBSIDIAN_VAULT / "Transcripts"))
+).expanduser()
 PID_FILE = Path("/tmp/wispr-unleashed.pid")
 USER_NAME = os.getenv("USER_NAME", "")
 POLL_INTERVAL = 5        # seconds between DB polls while recording
@@ -45,9 +49,10 @@ RECORD_DURATION = 295    # 4m55s — stop just before Wispr's 5-min warning
 PROCESS_TIMEOUT = 15     # seconds to wait for transcription after stopping
 MAX_DURATION = 2 * 60 * 60  # 2 hour hard limit
 DRAIN_TIMEOUT = 15       # seconds to wait for in-flight chunk after Ctrl+C
-START_RETRY_SCHEDULE = [5, 10, 15]  # seconds for first retries, then last value repeating
-START_WARN_AFTER = 2       # show warning after this many retries
-MAX_CHUNK_ATTEMPTS = 3     # auto-retry failed chunks before skipping
+BACKUP_NUDGE_DELAY = 1.5   # seconds — silent re-send of start URL to cover dropped first dispatch
+HEALTH_CHECK_INTERVAL = 30 # seconds between Wispr-process health checks during a chunk
+MAX_CHUNK_ATTEMPTS = 4     # auto-retry failed chunks before skipping
+MAX_CONSECUTIVE_CHUNK_FAILURES = 3  # abort session after this many failed chunks in a row
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -57,6 +62,20 @@ def slugify(text: str) -> str:
     text = re.sub(r"[\s_]+", "-", text)
     text = re.sub(r"-+", "-", text).strip("-")
     return text[:80].rstrip("-")
+
+
+def meeting_heading(args: list[str] | None = None) -> str:
+    """Return the requested recording title, or a timestamp fallback."""
+    args = sys.argv[1:] if args is None else args
+    requested = " ".join(args).strip()
+    return requested or datetime.now().strftime("recording-%I-%M-%p").lower()
+
+
+def sanitize_filename(text: str, fallback: str = "Meeting Notes") -> str:
+    """Make an LLM-generated title safe to use as a macOS filename."""
+    text = re.sub(r"[\\/:\x00-\x1f]", "-", text)
+    text = re.sub(r"\s+", " ", text).strip(" .")
+    return (text or fallback)[:120].rstrip(" .")
 
 
 def create_transcript_file(heading: str) -> Path:
@@ -178,27 +197,39 @@ def check_wispr_running() -> bool:
     return result.returncode == 0
 
 
-def _next_retry_time(retries_done: int) -> float:
-    """Return elapsed seconds at which the next start-recording retry should fire."""
-    if retries_done < len(START_RETRY_SCHEDULE):
-        return START_RETRY_SCHEDULE[retries_done]
-    extra = retries_done - len(START_RETRY_SCHEDULE) + 1
-    return START_RETRY_SCHEDULE[-1] * (1 + extra)
-
-
 def get_utc_now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f +00:00")
+    """Wispr-compatible timestamp string with a 2s backstop for clock skew.
+
+    Wispr stores timestamps with 3-digit millisecond precision. Match that
+    format so string-lex comparisons in SQL stay correct, and back off 2s so
+    clock drift between Python and Wispr can never make us miss our own row.
+    """
+    now = datetime.now(timezone.utc) - timedelta(seconds=2)
+    return now.strftime("%Y-%m-%d %H:%M:%S.") + f"{now.microsecond // 1000:03d} +00:00"
 
 
-def poll_for_transcription(since_utc: str, known_ids: set) -> dict | None:
+@contextmanager
+def _open_wispr_db():
+    """Yield a read-only connection to flow.sqlite, or None if unreadable."""
     try:
         conn = sqlite3.connect(f"file:{WISPR_DB}?mode=ro", uri=True)
     except sqlite3.OperationalError:
-        return None
+        yield None
+        return
+    conn.row_factory = sqlite3.Row
     try:
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute(
+        yield conn
+    except sqlite3.OperationalError:
+        pass
+    finally:
+        conn.close()
+
+
+def poll_for_transcription(since_utc: str, known_ids: set) -> dict | None:
+    with _open_wispr_db() as conn:
+        if conn is None:
+            return None
+        cursor = conn.execute(
             """
             SELECT transcriptEntityId, formattedText, numWords, duration
             FROM History
@@ -210,22 +241,27 @@ def poll_for_transcription(since_utc: str, known_ids: set) -> dict | None:
             """,
             (since_utc,),
         )
-        row = cursor.fetchone()
-        while row is not None:
-            eid = row["transcriptEntityId"]
-            if eid not in known_ids:
+        for row in cursor:
+            if row["transcriptEntityId"] not in known_ids:
                 return {
-                    "id": eid,
+                    "id": row["transcriptEntityId"],
                     "text": row["formattedText"],
                     "numWords": row["numWords"] or 0,
                     "duration": row["duration"] or 0.0,
                 }
-            row = cursor.fetchone()
-    except sqlite3.OperationalError:
-        pass
-    finally:
-        conn.close()
     return None
+
+
+def latest_history_row() -> dict | None:
+    """Best-effort fetch of the most recent History row, for failure diagnostics."""
+    with _open_wispr_db() as conn:
+        if conn is None:
+            return None
+        row = conn.execute(
+            "SELECT timestamp, status, numWords FROM History "
+            "ORDER BY timestamp DESC LIMIT 1"
+        ).fetchone()
+        return dict(row) if row else None
 
 
 def append_chunk(md_path: Path, chunk: dict):
@@ -261,10 +297,17 @@ def write_footer(md_path: Path, stats: dict):
 
 
 def _next_meeting_number(folder: Path) -> int:
-    """Count existing .md files in folder to determine the next meeting number."""
+    """Return one more than the highest numbered Markdown note."""
     if not folder.exists():
         return 1
-    return sum(1 for f in folder.iterdir() if f.suffix == ".md") + 1
+    numbers = []
+    for path in folder.iterdir():
+        if path.suffix.lower() != ".md":
+            continue
+        match = re.match(r"^(\d+)\s", path.name)
+        if match:
+            numbers.append(int(match.group(1)))
+    return max(numbers, default=0) + 1
 
 
 def generate_notes(transcript_path: Path, dest_dir: Path, heading: str,
@@ -281,7 +324,13 @@ def generate_notes(transcript_path: Path, dest_dir: Path, heading: str,
     put(f"{DIM}generating notes…{RESET}")
 
     try:
-        result = llm.generate_notes(transcript, category, meeting_num, vault=OBSIDIAN_VAULT)
+        result = llm.generate_notes(
+            transcript,
+            category,
+            meeting_num,
+            vault=OBSIDIAN_VAULT,
+            user_name=USER_NAME,
+        )
     except Exception as exc:
         put(f"{YELLOW}⚠{RESET}  {DIM}notes failed — {exc}{RESET}")
         put(f"   {DIM}transcript saved, configure LLM_MODEL in .env to generate notes{RESET}")
@@ -293,7 +342,7 @@ def generate_notes(transcript_path: Path, dest_dir: Path, heading: str,
 
     # First line is the LLM-generated title (plain text, no markdown)
     lines = result.split("\n", 1)
-    title = lines[0].strip().lstrip("# ").rstrip(".")
+    title = sanitize_filename(lines[0].strip().lstrip("# ").rstrip("."), heading)
     body = lines[1].lstrip("\n") if len(lines) > 1 else ""
 
     if title:
@@ -306,7 +355,8 @@ def generate_notes(transcript_path: Path, dest_dir: Path, heading: str,
     content = f"---\ndate: {date_str}\n---\n{body}\n"
 
     notes_path = dest_dir / filename
-    notes_path.write_text(content)
+    with notes_path.open("x") as notes_file:
+        notes_file.write(content)
     rel = notes_path.relative_to(OBSIDIAN_VAULT)
     put(f"{GREEN}✓{RESET} {DIM}{rel}{RESET}")
 
@@ -315,7 +365,7 @@ def generate_notes(transcript_path: Path, dest_dir: Path, heading: str,
 
 
 def main():
-    heading = datetime.now().strftime("recording-%I-%M-%p").lower()
+    heading = meeting_heading()
 
     if not WISPR_DB.exists():
         print("Wispr Flow not found. Is it installed?")
@@ -337,6 +387,7 @@ def main():
     known_ids: set = set()
     stats = {"chunks": 0, "words": 0, "recording_time": 0.0, "wall_time": 0.0}
     session_start = time.monotonic()
+    consecutive_failures = 0
     folder_picker = FolderPicker(OBSIDIAN_VAULT)
 
     def handle_sigint(signum, frame):
@@ -394,9 +445,10 @@ def main():
                     put(f"  {YELLOW}⚠{RESET}  {DIM}failed to dispatch start command{RESET}")
                     continue
                 chunk_in_flight = True
-                start_retries_done = 0
 
                 rec_start = time.monotonic()
+                last_health_check = rec_start
+                backup_nudge_done = False
                 recording_active = True
                 needs_stop = True
                 timed_out = False
@@ -415,29 +467,39 @@ def main():
                     if result:
                         chunk_in_flight = False
                         _finish_chunk(result, md_path, known_ids, stats, redraw)
-                        # WHY: if Wispr produced a transcript before we sent
-                        # stop, it finished on its own (user stopped it or it
-                        # hit its time limit). End the session rather than risk
-                        # a desynchronised chunk cycle.
+                        # If Wispr emitted a transcript before we sent stop, it
+                        # finished on its own (user stopped it or hit its time
+                        # limit). End the session rather than risk a
+                        # desynchronised chunk cycle.
                         if recording_active:
                             shutdown_requested = True
                         chunk_succeeded = True
                         break
 
-                    rec_elapsed = time.monotonic() - rec_start
+                    now = time.monotonic()
+                    rec_elapsed = now - rec_start
 
-                    # Keep nudging Wispr — it sometimes misses the start command.
-                    if recording_active and rec_elapsed >= _next_retry_time(start_retries_done):
+                    # Silent insurance re-send: covers the one real failure
+                    # mode (Wispr dropping the first start URL). After this we
+                    # trust Wispr is recording — the DB only gets a row after
+                    # stop, so any in-chunk "no transcript" check is meaningless
+                    # and the post-stop timeout is the authoritative detector.
+                    if (recording_active and not backup_nudge_done
+                            and rec_elapsed >= BACKUP_NUDGE_DELAY):
                         start_recording()
-                        start_retries_done += 1
-                        if start_retries_done <= START_WARN_AFTER:
-                            put(f"  {YELLOW}↻{RESET}  {DIM}nudging Wispr… ({start_retries_done}){RESET}")
-                        elif start_retries_done == START_WARN_AFTER + 1:
-                            if not check_wispr_running():
-                                put(f"  {YELLOW}⚠  Wispr Flow is not running!{RESET}")
-                            else:
-                                put(f"  {YELLOW}⚠  Wispr may not be recording{RESET}")
-                            put(f"    {DIM}will keep retrying{RESET}")
+                        backup_nudge_done = True
+
+                    # Periodic process health check — bounds worst case if
+                    # Wispr crashes mid-chunk so we retry in seconds, not minutes.
+                    if (recording_active
+                            and now - last_health_check >= HEALTH_CHECK_INTERVAL):
+                        last_health_check = now
+                        if not check_wispr_running():
+                            put(f"  {YELLOW}⚠  Wispr Flow died mid-chunk{RESET}")
+                            recording_active = False
+                            needs_stop = False
+                            timed_out = True
+                            break
 
                     if recording_active and rec_elapsed >= RECORD_DURATION:
                         stop_recording()
@@ -466,15 +528,31 @@ def main():
                             put(f"  {YELLOW}⚠  Wispr Flow not running — skipping chunk{RESET}")
                             chunk_in_flight = False
                             break
-                        put(f"  {YELLOW}↻{RESET}  {DIM}no transcript — retrying chunk ({remaining} left){RESET}")
+                        put(f"  {YELLOW}↻{RESET}  {DIM}retrying chunk ({remaining} left){RESET}")
                         time.sleep(2)
                     else:
                         sys.stdout.write("\n")
                         put(f"  {YELLOW}⚠{RESET}  {DIM}chunk failed after {MAX_CHUNK_ATTEMPTS} attempts — skipping{RESET}")
+                        latest = latest_history_row()
+                        if latest:
+                            put(f"    {DIM}last Wispr row: {latest['timestamp']} "
+                                f"({latest['status']}, {latest['numWords'] or 0}w){RESET}")
+                        else:
+                            put(f"    {DIM}no readable rows in Wispr DB{RESET}")
                         settle_after_paste()
                         chunk_in_flight = False
 
-            # Brief pause between chunks to let Wispr settle
+            if chunk_succeeded:
+                consecutive_failures = 0
+            elif not shutdown_requested:
+                # Don't count user-initiated shutdowns as failures.
+                consecutive_failures += 1
+                if consecutive_failures >= MAX_CONSECUTIVE_CHUNK_FAILURES:
+                    sys.stdout.write("\n")
+                    put(f"  {YELLOW}⚠  {consecutive_failures} chunks failed in a row "
+                        f"— aborting session{RESET}")
+                    shutdown_requested = True
+
             if chunk_succeeded and not shutdown_requested:
                 time.sleep(1)
 

@@ -4,6 +4,7 @@
 
 PID_FILE="/tmp/wispr-unleashed.pid"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
 
 # ── If already running, stop it ──────────────────────────────────────────────
 if [ -f "$PID_FILE" ]; then
@@ -19,6 +20,6 @@ fi
 osascript -e "
     tell application \"Terminal\"
         activate
-        do script \"python3 '$ROOT_DIR/record.py'\"
+        do script \"'$PYTHON_BIN' '$ROOT_DIR/record.py'\"
     end tell
 " 2>/dev/null

@@ -1,4 +1,4 @@
-You are extracting action items from a raw transcript of a research project meeting.
+You are extracting action items from a raw meeting transcript.
 
 Your job is to carefully identify every task, next step, or commitment that was discussed — whether explicitly stated or implicitly agreed upon.
 
