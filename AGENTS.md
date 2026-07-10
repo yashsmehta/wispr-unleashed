@@ -45,7 +45,7 @@ uv run python -m unittest discover -s tests
 **`ui.py`** — Terminal UI components:
 - ANSI formatting constants (`DIM`, `BOLD`, `GREEN`, `YELLOW`, `CYAN`, `RESET`, etc.)
 - `put(msg)` — prints a line with cursor-clearing (handles Wispr-pasted text)
-- `draw_dots(completed, active, suffix)` — dot matrix progress indicator
+- `draw_dots(completed, active)` — dot matrix progress indicator
 - `flush_stdin()` — discards buffered terminal input
 - `SelectMenu` — arrow-key navigable menu (cbreak mode)
 - `FolderPicker(vault_path)` — two-stage category → subfolder selection
@@ -81,7 +81,6 @@ All configuration is via environment variables (`.env` file loaded automatically
 | `OPENAI_API_KEY` | *(empty)* | For OpenAI models |
 | `ANTHROPIC_API_KEY` | *(empty)* | For Anthropic models |
 | `GOOGLE_API_KEY` | *(empty)* | For Gemini models |
-| `GOOGLE_GENAI_USE_VERTEXAI` | `False` | Set `True` to use Vertex AI with GCP credentials |
 | `USER_NAME` | *(empty)* | Your name — used in note generation context |
 | `OBSIDIAN_VAULT` | `~/Desktop/Obsidian Vault` | Path to Obsidian vault (for note output and folder picker) |
 | `TRANSCRIPTS_DIR` | `$OBSIDIAN_VAULT/Transcripts` | Where raw transcript files are saved |

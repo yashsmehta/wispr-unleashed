@@ -18,16 +18,8 @@ load_dotenv(ROOT_DIR / ".env")
 
 litellm.suppress_debug_info = True
 
-# Support legacy GOOGLE_GENAI_USE_VERTEXAI=True by mapping to vertex_ai/ prefix
-_USE_VERTEX = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "").lower() == "true"
 _DEFAULT_MODEL = "gemini/gemini-3.1-pro-preview"
 LLM_MODEL = os.getenv("LLM_MODEL", _DEFAULT_MODEL)
-
-# Map GOOGLE_CLOUD_PROJECT → VERTEXAI_PROJECT for litellm
-if _USE_VERTEX and not os.getenv("VERTEXAI_PROJECT"):
-    gcp_project = os.getenv("GOOGLE_CLOUD_PROJECT")
-    if gcp_project:
-        os.environ["VERTEXAI_PROJECT"] = gcp_project
 
 _OBSIDIAN_REF = Path(__file__).parent / "obsidian-reference.md"
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
@@ -35,6 +27,7 @@ _PROMPTS_DIR = Path(__file__).parent / "prompts"
 _TALK_CATEGORIES = {"Talks", "Classes", "Lectures", "Seminars"}
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
 
 @lru_cache(maxsize=None)
 def _read_prompt(name: str) -> str:
@@ -73,11 +66,13 @@ def _call_llm(system_prompt: str, transcript: str) -> str | None:
         return None
     return re.sub(r"\n{3,}", "\n\n", text.strip())
 
+
 # ── Public API ───────────────────────────────────────────────────────────────
 
-def generate_notes(transcript: str, category: str | None,
-                   meeting_num: int, *, user_name: str = "",
-                   **_kwargs) -> str | None:
+
+def generate_notes(
+    transcript: str, category: str | None, meeting_num: int, *, user_name: str = ""
+) -> str | None:
     """Generate notes + action items from transcript text.
 
     Returns combined markdown string, or None on failure.
@@ -98,8 +93,9 @@ def generate_notes(transcript: str, category: str | None,
     # Meetings: run notes + action items in parallel
     with ThreadPoolExecutor(max_workers=2) as pool:
         notes_future = pool.submit(_call_llm, prompt, transcript)
-        actions_future = pool.submit(_call_llm, _read_prompt("action_items"),
-                                     transcript)
+        actions_future = pool.submit(
+            _call_llm, _read_prompt("action_items"), transcript
+        )
         notes = notes_future.result()
         action_items = actions_future.result()
 

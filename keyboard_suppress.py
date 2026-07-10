@@ -9,33 +9,42 @@ import threading
 
 try:
     from Quartz import (
-        CGEventTapCreate, CGEventTapEnable, CGEventMaskBit,
+        CGEventTapCreate,
+        CGEventTapEnable,
+        CGEventMaskBit,
         CGEventGetIntegerValueField,
-        CFMachPortCreateRunLoopSource, CFMachPortInvalidate,
-        CFRunLoopGetCurrent, CFRunLoopAddSource, CFRunLoopRun, CFRunLoopStop,
+        CFMachPortCreateRunLoopSource,
+        CFMachPortInvalidate,
+        CFRunLoopGetCurrent,
+        CFRunLoopAddSource,
+        CFRunLoopRun,
+        CFRunLoopStop,
         kCFRunLoopCommonModes,
-        kCGSessionEventTap, kCGHeadInsertEventTap,
-        kCGEventKeyDown, kCGEventKeyUp,
+        kCGSessionEventTap,
+        kCGHeadInsertEventTap,
+        kCGEventKeyDown,
+        kCGEventKeyUp,
     )
+
     _HAS_QUARTZ = True
 except ImportError:
     _HAS_QUARTZ = False
 
 # CGEvent field / source state constants
-_SOURCE_STATE_FIELD = 45   # kCGEventSourceStateID
-_PHYSICAL_KEYBOARD = 1     # kCGEventSourceStateHIDSystemState
+_SOURCE_STATE_FIELD = 45  # kCGEventSourceStateID
+_PHYSICAL_KEYBOARD = 1  # kCGEventSourceStateHIDSystemState
 
 _tap = None
 _runloop = None
 _thread = None
 
 
-def _callback(proxy, event_type, event, refcon):
+def _callback(_proxy, _event_type, event, _refcon):
     """Block keyboard events that aren't from the physical keyboard."""
     source = CGEventGetIntegerValueField(event, _SOURCE_STATE_FIELD)
     if source != _PHYSICAL_KEYBOARD:
-        return None   # suppress injected event
-    return event      # pass physical keyboard through
+        return None  # suppress injected event
+    return event  # pass physical keyboard through
 
 
 def available() -> bool:
@@ -45,12 +54,18 @@ def available() -> bool:
     # AXIsProcessTrusted checks accessibility permission without side effects
     try:
         from ApplicationServices import AXIsProcessTrusted
+
         return AXIsProcessTrusted()
     except ImportError:
         # Fallback: try creating a tap to test
         mask = CGEventMaskBit(kCGEventKeyDown)
         tap = CGEventTapCreate(
-            kCGSessionEventTap, kCGHeadInsertEventTap, 0, mask, _callback, None,
+            kCGSessionEventTap,
+            kCGHeadInsertEventTap,
+            0,
+            mask,
+            _callback,
+            None,
         )
         if tap is None:
             return False

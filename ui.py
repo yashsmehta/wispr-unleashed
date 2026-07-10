@@ -30,8 +30,8 @@ def put(msg: str):
     sys.stdout.flush()
 
 
-def draw_dots(completed: int, active: bool, suffix: str = ""):
-    """Draw the dot matrix with optional right-side annotation."""
+def draw_dots(completed: int, active: bool):
+    """Draw the recording progress dot matrix."""
     total = max(DOT_COUNT, completed + 1)
     dots = []
     for i in range(total):
@@ -41,10 +41,7 @@ def draw_dots(completed: int, active: bool, suffix: str = ""):
             dots.append(DOT_ACTIVE)
         else:
             dots.append(DOT_EMPTY)
-    line = " ".join(dots)
-    if suffix:
-        line += f"  {DIM}{suffix}{RESET}"
-    sys.stdout.write(f"\033[2K\r  {line}")
+    sys.stdout.write(f"\033[2K\r  {' '.join(dots)}")
     sys.stdout.flush()
 
 
@@ -57,6 +54,7 @@ def flush_stdin():
 
 
 # ── Interactive menu ─────────────────────────────────────────────────────────
+
 
 class SelectMenu:
     """Arrow-key navigable menu. Assumes terminal is already in cbreak mode."""
@@ -85,9 +83,7 @@ class SelectMenu:
     def _erase(self):
         if self._line_count > 0:
             n = self._line_count
-            sys.stdout.write(
-                f"\033[{n}A" + "\033[2K\n" * n + f"\033[{n}A"
-            )
+            sys.stdout.write(f"\033[{n}A" + "\033[2K\n" * n + f"\033[{n}A")
             sys.stdout.flush()
             self._line_count = 0
 
@@ -134,6 +130,7 @@ class SelectMenu:
 
 # ── Folder discovery & picker ────────────────────────────────────────────────
 
+
 def discover_categories(vault_path: Path):
     """Find note category folders in Obsidian vault (excluding Transcripts)."""
     skip = {"transcripts", ".obsidian", ".trash"}
@@ -160,30 +157,24 @@ class FolderPicker:
     def __init__(self, vault_path: Path):
         self.vault_path = vault_path
         self.category: str | None = None
-        self.subfolder: str | None = None
-        self.vault_root = False
-        self.completed = False
 
-    def run(self, raw_mode: bool = False) -> bool:
-        """Run the interactive picker. raw_mode=True if terminal is already cbreak."""
+    def run(self) -> Path | None:
+        """Run the interactive picker and return the selected folder."""
         categories = discover_categories(self.vault_path)
         items = categories + ["(vault root)"]
 
         fd = sys.stdin.fileno()
-        old = None
-        if not raw_mode:
-            old = termios.tcgetattr(fd)
-            tty.setcbreak(fd)
+        old = termios.tcgetattr(fd)
+        tty.setcbreak(fd)
         try:
             menu = SelectMenu(items, prompt="notes")
             choice = menu.run()
             if choice is None:
-                return False
+                return None
             if choice == "(vault root)":
-                self.vault_root = True
-                self.completed = True
-                return True
+                return self.vault_path
             self.category = choice
+            destination = self.vault_path / self.category
 
             subs = discover_subfolders(self.vault_path, self.category)
             if subs:
@@ -191,33 +182,9 @@ class FolderPicker:
                 menu = SelectMenu(items, prompt=self.category)
                 choice = menu.run()
                 if choice is not None and choice != "(root)":
-                    self.subfolder = choice
+                    destination /= choice
 
-            self.completed = True
-            return True
+            destination.mkdir(parents=True, exist_ok=True)
+            return destination
         finally:
-            if old is not None:
-                termios.tcsetattr(fd, termios.TCSADRAIN, old)
-
-    def label(self) -> str:
-        if self.completed:
-            if self.vault_root:
-                return "vault root"
-            parts = [self.category]
-            if self.subfolder:
-                parts.append(self.subfolder)
-            return " › ".join(parts)
-        return "any key → pick folder"
-
-    def get_destination(self) -> Path | None:
-        if not self.completed:
-            return None
-        if self.vault_root:
-            return self.vault_path
-        if not self.category:
-            return None
-        dest = self.vault_path / self.category
-        if self.subfolder:
-            dest = dest / self.subfolder
-        dest.mkdir(parents=True, exist_ok=True)
-        return dest
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)

@@ -102,8 +102,7 @@ if [ "$(get_env "LLM_MODEL")" = "gemini/gemini-3.1-pro" ]; then
 fi
 
 echo ""
-if grep -qE '^(OPENAI_API_KEY|ANTHROPIC_API_KEY|GOOGLE_API_KEY|GEMINI_API_KEY)=.+' "$ENV_FILE" 2>/dev/null || \
-   grep -q '^GOOGLE_GENAI_USE_VERTEXAI=True' "$ENV_FILE" 2>/dev/null; then
+if grep -qE '^(OPENAI_API_KEY|ANTHROPIC_API_KEY|GOOGLE_API_KEY|GEMINI_API_KEY)=.+' "$ENV_FILE" 2>/dev/null; then
     MODEL=$(get_env "LLM_MODEL")
     ok "LLM configured${MODEL:+ ($MODEL)}"
 else
