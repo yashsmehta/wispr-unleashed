@@ -14,7 +14,7 @@
 
 Wispr Unleashed records meetings, lectures, brainstorms, and discussions through [Wispr Flow](https://wispr.com), seamlessly cycles past Flow's recording limit, and saves the complete transcript to [Obsidian](https://obsidian.md).
 
-When recording ends, it can also generate structured notes and action items using your locally logged-in [Claude Code](https://claude.com/claude-code) — no API key required.
+When recording ends, it can also generate high-signal notes using your locally logged-in [Claude Code](https://claude.com/claude-code) — no API key required.
 
 ## Install
 
@@ -41,7 +41,7 @@ Wispr Unleashed will:
 1. Record through Wispr Flow in continuous five-minute chunks.
 2. Stitch the completed transcriptions into one Markdown file.
 3. Preserve the raw transcript in your vault.
-4. Generate organized notes and, for meetings, action items.
+4. Generate organized notes with Claude.
 
 <p align="center">
   <img src="assets/diagram.png" alt="Wispr Unleashed recording pipeline" width="100%">
@@ -49,15 +49,11 @@ Wispr Unleashed will:
 
 > **First run:** Grant Accessibility permission to your terminal under **System Settings → Privacy & Security → Accessibility**. This prevents Flow from pasting each completed transcription into other apps.
 
-## Note styles
+## Notes
 
-The destination folder determines the output:
+Claude reads the transcript, works out what kind of recording it was (meeting, lecture, brainstorm, 1:1, …), and writes high-signal notes in whatever structure fits, including next steps or open questions when the conversation supports them. Pick any folder in your vault as the destination.
 
-- `Talks`, `Classes`, `Lectures`, and `Seminars` create structured study notes.
-- Other folders create meeting notes with a separate action-items section.
-- The vault root is always available.
-
-Prompts are plain Markdown files in `~/wispr-unleashed/prompts/`, so the note structure and writing style are fully customizable. Updates preserve your edited prompts and local `.env` configuration.
+The prompt is a plain Markdown file at `~/wispr-unleashed/prompts/notes.md`, so the style is fully customizable. Updates preserve your edited prompts and local `.env` configuration.
 
 ## AI configuration
 
@@ -74,7 +70,7 @@ AI is optional: recording and raw transcripts work without Claude Code.
 
 - Audio and transcription are handled by Wispr Flow.
 - Generated notes send the full transcript to Anthropic via Claude Code.
-- Meeting mode makes two requests: notes and action items.
+- Each recording makes one request.
 - Wispr Unleashed has no server; it uses your existing Claude Code login.
 
 Your Claude plan's privacy, retention, and usage limits apply.

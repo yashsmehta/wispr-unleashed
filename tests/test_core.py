@@ -62,6 +62,14 @@ class LlmCompatibilityTest(unittest.TestCase):
         self.assertEqual(kwargs["input"], "Transcript")
         self.assertNotIn("ANTHROPIC_API_KEY", kwargs["env"])
 
+    @patch("llm._call_llm", return_value="Title\nBody")
+    def test_generate_notes_makes_single_call_with_notes_prompt(self, call):
+        self.assertEqual(llm.generate_notes("Transcript", 3), "Title\nBody")
+        call.assert_called_once()
+        prompt, transcript = call.call_args.args
+        self.assertTrue(prompt.startswith(llm._read_prompt("notes")))
+        self.assertEqual(transcript, "Transcript")
+
     @patch("llm.subprocess.run")
     def test_error_result_raises(self, run):
         run.return_value = SimpleNamespace(

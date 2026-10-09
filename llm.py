@@ -10,7 +10,6 @@ import re
 import shutil
 import subprocess
 import tempfile
-from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from pathlib import Path
 
@@ -26,7 +25,6 @@ CLAUDE_TIMEOUT = 600  # seconds per call
 _OBSIDIAN_REF = Path(__file__).parent / "obsidian-reference.md"
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 
-_TALK_CATEGORIES = {"Talks", "Classes", "Lectures", "Seminars"}
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -44,9 +42,8 @@ def _read_obsidian_ref() -> str:
         return ""
 
 
-def _build_notes_prompt(category: str | None) -> str:
-    is_talk = category and category in _TALK_CATEGORIES
-    base = _read_prompt("talk_notes") if is_talk else _read_prompt("meeting_notes")
+def _build_notes_prompt() -> str:
+    base = _read_prompt("notes")
     ref = _read_obsidian_ref()
     if ref:
         base += "\n\nOBSIDIAN FORMATTING REFERENCE:\n" + ref
@@ -100,37 +97,18 @@ def _call_llm(system_prompt: str, transcript: str) -> str | None:
 
 
 def generate_notes(
-    transcript: str, category: str | None, meeting_num: int, *, user_name: str = ""
+    transcript: str, meeting_num: int, *, user_name: str = ""
 ) -> str | None:
-    """Generate notes + action items from transcript text.
+    """Generate notes from transcript text in a single call.
 
-    Returns combined markdown string, or None on failure.
+    Claude decides the structure (meeting, lecture, brainstorm, …) from the
+    content. Returns markdown whose first line is the title, or None on failure.
     """
-    is_talk = category and category in _TALK_CATEGORIES
-
-    prompt = _build_notes_prompt(category)
+    prompt = _build_notes_prompt()
     if user_name:
         prompt += (
             f"\n\nThe user's name is {user_name}. Use this only when it helps "
             "disambiguate speakers; do not invent speaker identities."
         )
-    prompt += f"\nThis is meeting #{meeting_num} in this series.\n"
-
-    if is_talk:
-        return _call_llm(prompt, transcript)
-
-    # Meetings: run notes + action items in parallel
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        notes_future = pool.submit(_call_llm, prompt, transcript)
-        actions_future = pool.submit(
-            _call_llm, _read_prompt("action_items"), transcript
-        )
-        notes = notes_future.result()
-        action_items = actions_future.result()
-
-    if notes is None:
-        return None
-
-    if action_items:
-        return notes + "\n\n" + action_items
-    return notes
+    prompt += f"\nThis is note #{meeting_num} in this folder.\n"
+    return _call_llm(prompt, transcript)

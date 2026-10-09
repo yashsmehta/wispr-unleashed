@@ -4,7 +4,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## Overview
 
-Wispr Unleashed is a macOS tool that records meeting audio using [Wispr Flow](https://wispr.com) and produces transcribed markdown files saved directly to Obsidian. It works around Wispr Flow's 6-minute recording limit by cycling recording chunks automatically (~4m55s each), polling Wispr's SQLite database for completed transcriptions, and stitching them into a single markdown file. After recording ends, it sends the transcript to Claude (headless Claude Code CLI, `claude -p`) to generate structured meeting notes (two separate LLM calls: one for notes, one for action items).
+Wispr Unleashed is a macOS tool that records meeting audio using [Wispr Flow](https://wispr.com) and produces transcribed markdown files saved directly to Obsidian. It works around Wispr Flow's 6-minute recording limit by cycling recording chunks automatically (~4m55s each), polling Wispr's SQLite database for completed transcriptions, and stitching them into a single markdown file. After recording ends, it sends the transcript to Claude (headless Claude Code CLI, `claude -p`) to generate notes in a single call, letting Claude choose the structure that fits the recording.
 
 ## Key Commands
 
@@ -53,17 +53,13 @@ uv run python -m unittest discover -s tests
 - All vault-path-dependent functions take `vault_path` as a parameter (no config imports)
 
 **`llm.py`** — LLM calls for note generation via headless Claude Code:
-- Two parallel API calls per meeting: one for structured notes, one for action items (via `ThreadPoolExecutor`)
-- Talks/lectures get a single notes call (no action items)
-- Category-aware prompts: meetings get a "meeting notes" prompt; talks/lectures/seminars get a "talk notes" prompt
-- Action items are unattributed project tasks (no person assignment) — specific and detailed
+- One call per recording with a single open-ended prompt: Claude infers what the recording is (meeting, lecture, brainstorm, …) and picks the structure; next steps/open questions only when supported
+- Destination folder does not affect the prompt
 - Shells out to `claude -p --model $CLAUDE_MODEL --effort $CLAUDE_EFFORT --system-prompt … --tools "" --output-format json`, transcript on stdin
 - Uses the locally logged-in Claude account: strips `ANTHROPIC_API_KEY` from the subprocess env and runs from a temp dir so no project CLAUDE.md is loaded
 
 **`prompts/`** — LLM prompt templates (markdown files):
-- `meeting_notes.md` — structured meeting notes prompt
-- `action_items.md` — action item extraction prompt
-- `talk_notes.md` — talk/lecture notes prompt
+- `notes.md` — the single notes prompt (first output line must be the title; never alter numbers/years from the transcript)
 - Loaded by `llm._read_prompt(name)` with `@lru_cache`
 
 **`scripts/`** — Shell scripts for installation and OS integration:

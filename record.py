@@ -337,7 +337,7 @@ def _next_meeting_number(folder: Path) -> int:
 
 
 def generate_notes(
-    transcript_path: Path, dest_dir: Path, heading: str, category: str | None = None
+    transcript_path: Path, dest_dir: Path, heading: str
 ):
     """Generate notes from transcript and save to dest_dir."""
     import llm
@@ -353,7 +353,6 @@ def generate_notes(
     try:
         result = llm.generate_notes(
             transcript,
-            category,
             meeting_num,
             user_name=USER_NAME,
         )
@@ -667,7 +666,7 @@ def main():
 
             if dest_dir:
                 generate_notes(
-                    md_path, dest_dir, heading, category=folder_picker.category
+                    md_path, dest_dir, heading
                 )
 
         put(f"{DIM}{md_path.name}{RESET}")
