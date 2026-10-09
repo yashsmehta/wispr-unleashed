@@ -1,25 +1,27 @@
 """LLM calls for transcript → notes generation.
 
-Uses litellm to support any provider (OpenAI, Anthropic, Google, etc.).
-Set LLM_MODEL and the corresponding API key in .env.
+Runs the locally logged-in Claude Code CLI headless (`claude -p`), so no API
+key is needed. Set CLAUDE_MODEL / CLAUDE_EFFORT in .env to override defaults.
 """
 
+import json
 import os
 import re
+import shutil
+import subprocess
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from pathlib import Path
 
-import litellm
 from dotenv import load_dotenv
 
 ROOT_DIR = Path(__file__).resolve().parent
 load_dotenv(ROOT_DIR / ".env")
 
-litellm.suppress_debug_info = True
-
-_DEFAULT_MODEL = "gemini/gemini-3.1-pro-preview"
-LLM_MODEL = os.getenv("LLM_MODEL", _DEFAULT_MODEL)
+CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-5-5")
+CLAUDE_EFFORT = os.getenv("CLAUDE_EFFORT", "medium")
+CLAUDE_TIMEOUT = 600  # seconds per call
 
 _OBSIDIAN_REF = Path(__file__).parent / "obsidian-reference.md"
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
@@ -51,17 +53,44 @@ def _build_notes_prompt(category: str | None) -> str:
     return base
 
 
+def _claude_command(system_prompt: str) -> list[str]:
+    claude = shutil.which("claude") or str(Path.home() / ".local/bin/claude")
+    return [
+        claude,
+        "-p",
+        "--model", CLAUDE_MODEL,
+        "--effort", CLAUDE_EFFORT,
+        "--system-prompt", system_prompt,
+        "--tools", "",
+        "--strict-mcp-config",
+        "--no-session-persistence",
+        "--output-format", "json",
+    ]
+
+
 def _call_llm(system_prompt: str, transcript: str) -> str | None:
-    """Make a single LLM call and return cleaned text, or None."""
-    response = litellm.completion(
-        model=LLM_MODEL,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": transcript},
-        ],
-        max_tokens=16384,
-    )
-    text = response.choices[0].message.content
+    """Make a single headless Claude Code call and return cleaned text, or None."""
+    # Drop any API key so the CLI uses the logged-in Claude account, and run
+    # from an empty dir so no project CLAUDE.md leaks into the prompt.
+    env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+    with tempfile.TemporaryDirectory() as cwd:
+        proc = subprocess.run(
+            _claude_command(system_prompt),
+            input=transcript,
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            env=env,
+            timeout=CLAUDE_TIMEOUT,
+        )
+    try:
+        payload = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        detail = (proc.stderr or proc.stdout).strip()[-300:]
+        raise RuntimeError(f"claude exited {proc.returncode}: {detail}") from None
+    if payload.get("is_error"):
+        raise RuntimeError(f"claude error: {payload.get('result')}")
+    text = payload.get("result")
     if not text or not text.strip():
         return None
     return re.sub(r"\n{3,}", "\n\n", text.strip())

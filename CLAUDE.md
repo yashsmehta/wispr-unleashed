@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Wispr Unleashed is a macOS tool that records meeting audio using [Wispr Flow](https://wispr.com) and produces transcribed markdown files saved directly to Obsidian. It works around Wispr Flow's 6-minute recording limit by cycling recording chunks automatically (~4m55s each), polling Wispr's SQLite database for completed transcriptions, and stitching them into a single markdown file. After recording ends, it sends the transcript to an LLM (any provider via litellm) to generate structured meeting notes (two separate LLM calls: one for notes, one for action items).
+Wispr Unleashed is a macOS tool that records meeting audio using [Wispr Flow](https://wispr.com) and produces transcribed markdown files saved directly to Obsidian. It works around Wispr Flow's 6-minute recording limit by cycling recording chunks automatically (~4m55s each), polling Wispr's SQLite database for completed transcriptions, and stitching them into a single markdown file. After recording ends, it sends the transcript to Claude (headless Claude Code CLI, `claude -p`) to generate structured meeting notes (two separate LLM calls: one for notes, one for action items).
 
 ## Key Commands
 
@@ -52,12 +52,13 @@ uv run python -m unittest discover -s tests
 - `discover_categories(vault_path)` / `discover_subfolders(vault_path, category)` — Obsidian vault folder discovery
 - All vault-path-dependent functions take `vault_path` as a parameter (no config imports)
 
-**`llm.py`** — LLM calls for note generation (provider-agnostic via litellm):
+**`llm.py`** — LLM calls for note generation via headless Claude Code:
 - Two parallel API calls per meeting: one for structured notes, one for action items (via `ThreadPoolExecutor`)
 - Talks/lectures get a single notes call (no action items)
 - Category-aware prompts: meetings get a "meeting notes" prompt; talks/lectures/seminars get a "talk notes" prompt
 - Action items are unattributed project tasks (no person assignment) — specific and detailed
-- Uses `litellm.completion()` — supports any provider (OpenAI, Anthropic, Google, etc.) via `LLM_MODEL` env var
+- Shells out to `claude -p --model $CLAUDE_MODEL --effort $CLAUDE_EFFORT --system-prompt … --tools "" --output-format json`, transcript on stdin
+- Uses the locally logged-in Claude account: strips `ANTHROPIC_API_KEY` from the subprocess env and runs from a temp dir so no project CLAUDE.md is loaded
 
 **`prompts/`** — LLM prompt templates (markdown files):
 - `meeting_notes.md` — structured meeting notes prompt
@@ -77,10 +78,8 @@ All configuration is via environment variables (`.env` file loaded automatically
 
 | Variable | Default | Description |
 |---|---|---|
-| `LLM_MODEL` | `gemini/gemini-3.1-pro-preview` | Model for note generation (any litellm-supported model) |
-| `OPENAI_API_KEY` | *(empty)* | For OpenAI models |
-| `ANTHROPIC_API_KEY` | *(empty)* | For Anthropic models |
-| `GOOGLE_API_KEY` | *(empty)* | For Gemini models |
+| `CLAUDE_MODEL` | `claude-sonnet-5-5` | Model passed to `claude -p --model` |
+| `CLAUDE_EFFORT` | `medium` | Effort passed to `claude -p --effort` |
 | `USER_NAME` | *(empty)* | Your name — used in note generation context |
 | `OBSIDIAN_VAULT` | `~/Desktop/Obsidian Vault` | Path to Obsidian vault (for note output and folder picker) |
 | `TRANSCRIPTS_DIR` | `$OBSIDIAN_VAULT/Transcripts` | Where raw transcript files are saved |
@@ -88,7 +87,7 @@ All configuration is via environment variables (`.env` file loaded automatically
 ## Important Details
 
 - Wispr Flow must be installed and used at least once (so the SQLite DB exists)
-- Note generation requires an LLM API key in `.env` — any provider supported by litellm (OpenAI, Anthropic, Google, etc.)
+- Note generation requires the Claude Code CLI installed and logged in (no API key needed)
 - Transcriptions are matched by `transcriptEntityId` to avoid duplicates; the `known_ids` set tracks already-processed chunks
 - Signal handling: first Ctrl+C triggers graceful shutdown with drain; second forces exit
 - Arrow key input in the folder picker (`ui.py`) uses `os.read(fd, 1)` directly (not `sys.stdin.read`) to avoid Python's `BufferedReader` consuming escape sequence bytes before `select.select` can detect them

@@ -96,67 +96,12 @@ ok "Python $PY_VERSION + dependencies"
 touch "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 
-# Migrate the model identifier written by pre-public-release installers.
-if [ "$(get_env "LLM_MODEL")" = "gemini/gemini-3.1-pro" ]; then
-    set_env "LLM_MODEL" "gemini/gemini-3.1-pro-preview"
-fi
-
 echo ""
-if grep -qE '^(OPENAI_API_KEY|ANTHROPIC_API_KEY|GOOGLE_API_KEY|GEMINI_API_KEY)=.+' "$ENV_FILE" 2>/dev/null; then
-    MODEL=$(get_env "LLM_MODEL")
-    ok "LLM configured${MODEL:+ ($MODEL)}"
+if command -v claude >/dev/null 2>&1 || [ -x "$HOME/.local/bin/claude" ]; then
+    ok "Claude Code found ${DIM}— notes use your logged-in account${RESET}"
 else
-    echo -e "  ${DIM}note generation — choose your LLM provider${RESET}"
-    echo ""
-    echo -e "     ${CYAN}1${RESET}  Google Gemini"
-    echo -e "     ${CYAN}2${RESET}  OpenAI"
-    echo -e "     ${CYAN}3${RESET}  Anthropic"
-    echo -e "     ${CYAN}4${RESET}  Skip ${DIM}— configure .env later${RESET}"
-    echo ""
-    read -rp "  choice [1]: " provider
-    provider=${provider:-1}
-
-    case "$provider" in
-        1)
-            dim "get a key at https://aistudio.google.com/apikey"
-            read -srp "  paste your API key: " api_key
-            echo ""
-            if [ -n "$api_key" ]; then
-                set_env "GOOGLE_API_KEY" "$api_key"
-                set_env "LLM_MODEL" "gemini/gemini-3.1-pro-preview"
-                ok "Gemini configured"
-            else
-                warn "no key entered"
-            fi
-            ;;
-        2)
-            dim "get a key at https://platform.openai.com/api-keys"
-            read -srp "  paste your API key: " api_key
-            echo ""
-            if [ -n "$api_key" ]; then
-                set_env "OPENAI_API_KEY" "$api_key"
-                set_env "LLM_MODEL" "gpt-4o-mini"
-                ok "OpenAI configured"
-            else
-                warn "no key entered"
-            fi
-            ;;
-        3)
-            dim "get a key at https://console.anthropic.com/settings/keys"
-            read -srp "  paste your API key: " api_key
-            echo ""
-            if [ -n "$api_key" ]; then
-                set_env "ANTHROPIC_API_KEY" "$api_key"
-                set_env "LLM_MODEL" "anthropic/claude-sonnet-5"
-                ok "Anthropic configured"
-            else
-                warn "no key entered"
-            fi
-            ;;
-        *)
-            dim "skipped — edit $ENV_FILE when ready"
-            ;;
-    esac
+    warn "Claude Code not found — install it from https://claude.com/claude-code and run \`claude\` once to log in"
+    dim "recording still works; note generation needs Claude Code"
 fi
 
 echo ""

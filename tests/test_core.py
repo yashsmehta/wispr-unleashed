@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -43,18 +44,33 @@ class RecordingHelpersTest(unittest.TestCase):
 
 
 class LlmCompatibilityTest(unittest.TestCase):
-    @patch("llm.litellm.completion")
-    def test_common_parameters_do_not_force_provider_specific_thinking(
-        self, completion
-    ):
-        completion.return_value = SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content="Notes"))]
+    @patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-test"})
+    @patch("llm.subprocess.run")
+    def test_calls_headless_claude_with_logged_in_account(self, run):
+        run.return_value = SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps({"is_error": False, "result": "Notes\n\n\n\nMore"}),
+            stderr="",
         )
-        self.assertEqual(llm._call_llm("System", "Transcript"), "Notes")
-        kwargs = completion.call_args.kwargs
-        self.assertNotIn("thinking", kwargs)
-        self.assertNotIn("allowed_openai_params", kwargs)
-        self.assertNotIn("temperature", kwargs)
+        self.assertEqual(llm._call_llm("System", "Transcript"), "Notes\n\nMore")
+        cmd = run.call_args.args[0]
+        kwargs = run.call_args.kwargs
+        self.assertIn("-p", cmd)
+        self.assertEqual(cmd[cmd.index("--model") + 1], llm.CLAUDE_MODEL)
+        self.assertEqual(cmd[cmd.index("--effort") + 1], llm.CLAUDE_EFFORT)
+        self.assertEqual(cmd[cmd.index("--system-prompt") + 1], "System")
+        self.assertEqual(kwargs["input"], "Transcript")
+        self.assertNotIn("ANTHROPIC_API_KEY", kwargs["env"])
+
+    @patch("llm.subprocess.run")
+    def test_error_result_raises(self, run):
+        run.return_value = SimpleNamespace(
+            returncode=1,
+            stdout=json.dumps({"is_error": True, "result": "Not logged in"}),
+            stderr="",
+        )
+        with self.assertRaisesRegex(RuntimeError, "Not logged in"):
+            llm._call_llm("System", "Transcript")
 
 
 if __name__ == "__main__":

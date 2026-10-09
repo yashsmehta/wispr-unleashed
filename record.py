@@ -17,6 +17,7 @@ import sqlite3
 import subprocess
 import sys
 import termios
+import threading
 import time
 import tty
 from contextlib import contextmanager
@@ -25,6 +26,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+import esc_guard
 import keyboard_suppress
 from ui import (
     put,
@@ -358,7 +360,7 @@ def generate_notes(
     except Exception as exc:
         put(f"{YELLOW}⚠{RESET}  {DIM}notes failed — {exc}{RESET}")
         put(
-            f"   {DIM}transcript saved, configure LLM_MODEL in .env to generate notes{RESET}"
+            f"   {DIM}transcript saved, check `claude` is installed and logged in to generate notes{RESET}"
         )
         return
 
@@ -437,9 +439,27 @@ def main():
     def redraw(active):
         draw_dots(stats["chunks"], active=active)
 
+    # Double-Esc cancel: the first Esc is swallowed so Wispr keeps recording;
+    # a second Esc within the window reaches Wispr (which cancels) and ends
+    # the session like Ctrl+C, minus the stop/drain of the discarded chunk.
+    esc_cancelled = threading.Event()
+
+    def on_esc_first_press():
+        put(f"{DIM}esc again within {esc_guard.DOUBLE_PRESS_WINDOW:.0f}s to cancel recording{RESET}")
+        redraw(active=chunk_in_flight)
+
+    def on_esc_cancel():
+        if shutdown_requested or esc_cancelled.is_set():
+            return
+        esc_cancelled.set()
+        os.kill(os.getpid(), signal.SIGINT)
+
     try:
         if interactive:
             tty.setcbreak(fd)
+
+        if _use_event_tap:
+            esc_guard.start(on_esc_first_press, on_esc_cancel)
 
         redraw(active=False)
         needs_stop = False
@@ -600,6 +620,11 @@ def main():
             if chunk_succeeded and not shutdown_requested:
                 time.sleep(1)
 
+        if esc_cancelled.is_set():
+            sys.stdout.write("\n")
+            put(f"{YELLOW}cancelled{RESET} {DIM}— current chunk discarded{RESET}")
+            needs_stop = chunk_in_flight = False
+
         if needs_stop:
             stop_recording()
 
@@ -618,6 +643,7 @@ def main():
                     time.sleep(POLL_FAST)
 
     finally:
+        esc_guard.stop()  # single Esc works normally again (e.g. folder picker)
         if old_term is not None:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_term)
         sys.stdout.write(SHOW_CURSOR)
