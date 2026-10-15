@@ -382,6 +382,20 @@ def generate_notes(
         notes_file.write(content)
     rel = notes_path.relative_to(OBSIDIAN_VAULT)
     put(f"{GREEN}✓{RESET} {DIM}{rel}{RESET}")
+    sync_vault(f"Add note: {rel.with_suffix('')}")
+
+
+def sync_vault(message: str):
+    """Commit and push the vault in the background, if it has a sync script (_reader/vault-sync.sh)."""
+    script = OBSIDIAN_VAULT / "_reader" / "vault-sync.sh"
+    if script.exists():
+        subprocess.Popen(
+            ["/bin/bash", str(script), message],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
