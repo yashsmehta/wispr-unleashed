@@ -8,6 +8,8 @@ The transcript is machine-transcribed: expect misheard words, missing punctuatio
 
 Output format (strict):
 - The VERY FIRST LINE is a short title for the note: 8 words or fewer, plain text, no `#`, no quotes, no date. It becomes the filename and is stripped from the body.
-- Then the note body in Obsidian-flavored markdown. Use `##`/`###` headings, terse bullets, and Obsidian features (callouts, ==highlights== for key results, $LaTeX$ for math, tables) where they genuinely aid clarity, not for decoration. In tables, every cell must hold a real value from the transcript; drop any row or column you can't fill rather than writing "n/a", "lower", or similar.
+- Then the note body in Obsidian-flavored markdown. Use `###` headings for major sections (never `#` or `##`, and prefer bold bullet lead-ins `- **Subtopic:**` over `####` subheadings). Never use `---` horizontal rules anywhere in the note.
+- Use terse bullets and Obsidian features (==highlights== for key results, $LaTeX$ for math, tables, and callouts) where they genuinely aid clarity. Keep callouts sparse (at most 1–2 in the body for high-value synthesis, plus `> [!todo]` at the end for action items) so the note isn't cluttered with box borders. In tables, every cell must hold a real value from the transcript; drop any row or column you can't fill rather than writing "n/a", "lower", or similar. Always leave a blank line before and after headings, callouts, tables, and lists.
 - If the transcript header/footer gives times, open the body with a one-line `` `start – end` · `duration` `` stamp, followed by a 2–3 sentence `>` summary that orients a skimming reader.
 - No preamble, no meta-commentary ("the speaker discussed…", "in this meeting…"), no closing remarks, no notes about transcription quality or spellings. Just the note.
+

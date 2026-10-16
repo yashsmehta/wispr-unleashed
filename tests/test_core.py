@@ -11,10 +11,14 @@ from ui import FolderPicker
 
 
 class RecordingHelpersTest(unittest.TestCase):
-    def test_requested_heading_is_used(self):
+    def test_cli_context_joins_args(self):
         self.assertEqual(
-            record.meeting_heading(["Weekly", "Standup"]), "Weekly Standup"
+            record.cli_context(["brown", "bag", "talk", "by", "Leyla", "Isik"]),
+            "brown bag talk by Leyla Isik",
         )
+
+    def test_meeting_heading_uses_timestamp(self):
+        self.assertTrue(record.meeting_heading().startswith("recording-"))
 
     def test_generated_filename_is_sanitized(self):
         self.assertEqual(
@@ -52,7 +56,9 @@ class LlmCompatibilityTest(unittest.TestCase):
             stdout=json.dumps({"is_error": False, "result": "Notes\n\n\n\nMore"}),
             stderr="",
         )
-        self.assertEqual(llm._call_llm("System", "Transcript"), "Notes\n\nMore")
+        self.assertEqual(
+            llm._call_llm("System", "Transcript", provider="claude"), "Notes\n\nMore"
+        )
         cmd = run.call_args.args[0]
         kwargs = run.call_args.kwargs
         self.assertIn("-p", cmd)
@@ -62,13 +68,71 @@ class LlmCompatibilityTest(unittest.TestCase):
         self.assertEqual(kwargs["input"], "Transcript")
         self.assertNotIn("ANTHROPIC_API_KEY", kwargs["env"])
 
+    @patch("llm.subprocess.run")
+    def test_calls_headless_agy_with_adc_billing(self, run):
+        run.return_value = SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps({"status": "SUCCESS", "response": "Notes\n\n\n\nMore"}),
+            stderr="",
+        )
+        self.assertEqual(
+            llm._call_llm("System", "Transcript", provider="antigravity"),
+            "Notes\n\nMore",
+        )
+        cmd = run.call_args.args[0]
+        kwargs = run.call_args.kwargs
+        self.assertEqual(cmd[cmd.index("--model") + 1], llm.AGY_MODEL)
+        self.assertTrue(any(arg.startswith("-p=System") for arg in cmd))
+        self.assertEqual(kwargs["env"].get("AGY_ADC_AUTH"), "true")
+
     @patch("llm._call_llm", return_value="Title\nBody")
     def test_generate_notes_makes_single_call_with_notes_prompt(self, call):
         self.assertEqual(llm.generate_notes("Transcript", 3), "Title\nBody")
         call.assert_called_once()
         prompt, transcript = call.call_args.args
         self.assertTrue(prompt.startswith(llm._read_prompt("notes")))
+        self.assertIn("Yash Mehta", prompt)
         self.assertEqual(transcript, "Transcript")
+
+    @patch("llm._call_llm", return_value="Title\nBody")
+    def test_generate_notes_includes_folder_and_cli_context(self, call):
+        llm.generate_notes(
+            "Transcript",
+            5,
+            folder="Research Projects/Coarsegraining",
+            user_context="brown bag talk by Leyla Isik",
+        )
+        prompt, _ = call.call_args.args
+        self.assertIn("Yash Mehta", prompt)
+        self.assertIn("recap of the previous session", prompt)
+        self.assertIn("coarse supervisory signals", prompt)
+        self.assertIn(
+            "Additional context for this recording: brown bag talk by Leyla Isik",
+            prompt,
+        )
+
+    @patch("llm._call_llm", return_value="Title\nBody")
+    def test_generate_notes_health_folder_context(self, call):
+        llm.generate_notes("Transcript", 2, folder="My Health")
+        prompt, _ = call.call_args.args
+        self.assertIn("Nora Arnold", prompt)
+        self.assertNotIn("recap of the previous session", prompt)
+
+    @patch("llm._call_claude", return_value="Fallback Title\n\nBody")
+    @patch("llm._call_agy", side_effect=RuntimeError("agy unavailable"))
+    def test_agy_falls_back_to_claude_on_failure(self, call_agy, call_claude):
+        self.assertEqual(
+            llm._call_llm("System", "Transcript"), "Fallback Title\n\nBody"
+        )
+        call_agy.assert_called_once()
+        call_claude.assert_called_once()
+
+    def test_clean_note_markdown_strips_hr_and_normalizes_headings(self):
+        raw = "Note Title\n\n---\n\n## Section One\n\n### Subsection\n\n---\n\n- bullet"
+        cleaned = llm._clean_note_markdown(raw)
+        self.assertNotIn("---", cleaned)
+        self.assertIn("### Section One", cleaned)
+        self.assertIn("#### Subsection", cleaned)
 
     @patch("llm.subprocess.run")
     def test_error_result_raises(self, run):
@@ -78,8 +142,11 @@ class LlmCompatibilityTest(unittest.TestCase):
             stderr="",
         )
         with self.assertRaisesRegex(RuntimeError, "Not logged in"):
-            llm._call_llm("System", "Transcript")
+            llm._call_llm("System", "Transcript", provider="claude")
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+

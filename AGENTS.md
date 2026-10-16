@@ -12,8 +12,8 @@ Wispr Unleashed is a macOS tool that records meeting audio using [Wispr Flow](ht
 # Record a meeting (runs until Ctrl+C or 2-hour limit)
 wispr
 
-# Record with a specific title (otherwise defaults to timestamp)
-wispr "Meeting Title"
+# Record with additional context passed to Claude during note generation
+wispr brown bag talk by Leyla Isik
 
 # Install dependencies / run tests
 uv sync
@@ -29,7 +29,7 @@ uv run python -m unittest discover -s tests
 - Sets terminal window title to `wispr-recording` for window targeting
 - Uses `keyboard_suppress.py` CGEventTap to block Wispr's paste (falls back to focus management if no accessibility permission)
 - On shutdown: drains in-flight transcription, writes session summary footer
-- Post-recording interactive flow: folder picker → note generation via `llm.py`
+- Post-recording interactive flow: folder picker → note generation via `llm.py` (passing selected folder and any CLI context string)
 - Notes are saved as `{num:02d} {Title}.md` with YAML `date:` frontmatter in the chosen Obsidian folder
 - Auto-numbers notes sequentially within each folder
 - Uses a PID file at `/tmp/wispr-unleashed.pid` for toggle coordination
@@ -54,12 +54,13 @@ uv run python -m unittest discover -s tests
 
 **`llm.py`** — LLM calls for note generation via headless Claude Code:
 - One call per recording with a single open-ended prompt: Claude infers what the recording is (meeting, lecture, brainstorm, …) and picks the structure; next steps/open questions only when supported
-- Destination folder does not affect the prompt
+- Injects global and folder-specific context from `prompts/context.md` (matching parent category and subfolder) plus any CLI context string (`user_context`)
 - Shells out to `claude -p --model $CLAUDE_MODEL --effort $CLAUDE_EFFORT --system-prompt … --tools "" --output-format json`, transcript on stdin
 - Uses the locally logged-in Claude account: strips `ANTHROPIC_API_KEY` from the subprocess env and runs from a temp dir so no project CLAUDE.md is loaded
 
 **`prompts/`** — LLM prompt templates (markdown files):
-- `notes.md` — the single notes prompt (first output line must be the title; never alter numbers/years from the transcript)
+- `notes.md` — the core notes prompt (first output line must be the title; never alter numbers/years from the transcript)
+- `context.md` — global preamble (for Yash Mehta) plus `## <Folder>` sections (`Health`, `Research Projects`, and per-project paragraphs)
 - Loaded by `llm._read_prompt(name)` with `@lru_cache`
 
 **`scripts/`** — Shell scripts for installation and OS integration:

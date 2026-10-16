@@ -81,11 +81,15 @@ def slugify(text: str) -> str:
     return text[:80].rstrip("-")
 
 
-def meeting_heading(args: list[str] | None = None) -> str:
-    """Return the requested recording title, or a timestamp fallback."""
+def cli_context(args: list[str] | None = None) -> str:
+    """Return optional context passed on the command line after `wispr`."""
     args = sys.argv[1:] if args is None else args
-    requested = " ".join(args).strip()
-    return requested or datetime.now().strftime("recording-%I-%M-%p").lower()
+    return " ".join(args).strip()
+
+
+def meeting_heading() -> str:
+    """Return a timestamp-based heading for the raw transcript file."""
+    return datetime.now().strftime("recording-%I-%M-%p").lower()
 
 
 def sanitize_filename(text: str, fallback: str = "Meeting Notes") -> str:
@@ -337,7 +341,7 @@ def _next_meeting_number(folder: Path) -> int:
 
 
 def generate_notes(
-    transcript_path: Path, dest_dir: Path, heading: str
+    transcript_path: Path, dest_dir: Path, user_context: str = ""
 ):
     """Generate notes from transcript and save to dest_dir."""
     import llm
@@ -351,10 +355,18 @@ def generate_notes(
     put(f"{DIM}generating notes…{RESET}")
 
     try:
+        rel_dir = dest_dir.relative_to(OBSIDIAN_VAULT)
+        folder = "" if str(rel_dir) == "." else rel_dir.as_posix()
+    except ValueError:
+        folder = dest_dir.name
+
+    try:
         result = llm.generate_notes(
             transcript,
             meeting_num,
             user_name=USER_NAME,
+            folder=folder,
+            user_context=user_context,
         )
     except Exception as exc:
         put(f"{YELLOW}⚠{RESET}  {DIM}notes failed — {exc}{RESET}")
@@ -369,7 +381,7 @@ def generate_notes(
 
     # First line is the LLM-generated title (plain text, no markdown)
     lines = result.split("\n", 1)
-    title = sanitize_filename(lines[0].strip().lstrip("# ").rstrip("."), heading)
+    title = sanitize_filename(lines[0].strip().lstrip("# ").rstrip("."))
     body = lines[1].lstrip("\n") if len(lines) > 1 else ""
     filename = f"{meeting_num:02d} {title}.md"
 
@@ -403,6 +415,7 @@ def sync_vault(message: str):
 
 def main():
     heading = meeting_heading()
+    user_context = cli_context()
 
     if not WISPR_DB.exists():
         print("Wispr Flow not found. Is it installed?")
@@ -435,7 +448,8 @@ def main():
     signal.signal(signal.SIGINT, handle_sigint)
 
     set_window_title()
-    print(f"\n  {BOLD}wispr{RESET} {DIM}·{RESET} {heading}\n")
+    banner_label = user_context or heading
+    print(f"\n  {BOLD}wispr{RESET} {DIM}·{RESET} {banner_label}\n")
 
     if not _use_event_tap:
         put(
@@ -680,7 +694,7 @@ def main():
 
             if dest_dir:
                 generate_notes(
-                    md_path, dest_dir, heading
+                    md_path, dest_dir, user_context=user_context
                 )
 
         put(f"{DIM}{md_path.name}{RESET}")

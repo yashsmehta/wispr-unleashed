@@ -132,11 +132,15 @@ class SelectMenu:
 
 
 def discover_categories(vault_path: Path):
-    """Find note category folders in Obsidian vault (excluding Transcripts)."""
-    skip = {"transcripts", ".obsidian", ".trash"}
+    """Find note category folders in Obsidian vault (excluding Transcripts and system dirs)."""
+    skip = {"transcripts", "attachments", "_reader", ".obsidian", ".trash"}
     categories = []
     for p in sorted(vault_path.iterdir()):
-        if p.is_dir() and p.name.lower() not in skip and not p.name.startswith("."):
+        if (
+            p.is_dir()
+            and p.name.lower() not in skip
+            and not p.name.startswith((".", "_"))
+        ):
             categories.append(p.name)
     return categories
 
